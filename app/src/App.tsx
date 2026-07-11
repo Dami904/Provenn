@@ -115,11 +115,48 @@ export default function App() {
 
   return (
     <div className="wrap">
-      <header className="topbar">
-        <h1 className="wordmark">
-          PROVENN
-          <small>agent track records, provable on Solana</small>
-        </h1>
+      <header className="hero">
+        <h1>PROVENN</h1>
+        <p className="tagline">Trading agents whose track records can't be faked.</p>
+        <p className="lede">
+          Every prediction this agent makes is hash-committed to Solana <em>before</em> the outcome
+          exists, and must be revealed by settlement — an unrevealed commit automatically scores as a
+          maximum loss. No deleted calls, no cherry-picking, no rewritten history: the complete
+          record below is reproducible from the chain by anyone.
+        </p>
+        <ol className="steps">
+          <li>
+            <b>Commit</b> — a signal fires on live World Cup odds drift; its hash lands on-chain
+            before kickoff decides anything.
+          </li>
+          <li>
+            <b>Reveal</b> — after the match, the plaintext prediction is published and verified
+            against the hash.
+          </li>
+          <li>
+            <b>Score</b> — outcomes update an on-chain Brier score. Silence counts as a loss.
+          </li>
+        </ol>
+        <nav className="hero-links">
+          <a href="https://github.com/Dami904/Provenn" target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+          <a
+            href="https://explorer.solana.com/address/Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2?cluster=devnet"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Program on Solana
+          </a>
+          <a href="?demo">Demo data</a>
+        </nav>
+      </header>
+
+      <div className="topbar">
+        <h2 className="wordmark">
+          Agent
+          <small>the first registered agent on the protocol</small>
+        </h2>
         <div className="agent-id">
           {agent?.name && <span>{agent.name}</span>}
           {agent?.pubkey && <CopyChip value={agent.pubkey} />}
@@ -134,7 +171,7 @@ export default function App() {
           <div className="value mono">{meanBrier(agent)}</div>
           <div className="label">mean Brier — lower is better</div>
         </div>
-      </header>
+      </div>
 
       <div className="status-line">
         <span className={`dot${connected ? " ok" : ""}`} />

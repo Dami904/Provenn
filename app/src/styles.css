@@ -47,6 +47,73 @@ a:hover {
   padding: 0 20px 64px;
 }
 
+/* ---------- landing hero ---------- */
+
+.hero {
+  padding: 44px 0 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hero h1 {
+  font-family: var(--mono);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.tagline {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+.lede {
+  max-width: 62ch;
+  color: var(--muted);
+  margin: 10px 0 0;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  list-style: none;
+  counter-reset: step;
+  padding: 0;
+  margin: 22px 0 0;
+}
+
+.steps li {
+  counter-increment: step;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.steps li::before {
+  content: counter(step, decimal-leading-zero);
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.steps li b {
+  color: var(--text);
+}
+
+.hero-links {
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+  font-size: 13px;
+}
+
 /* ---------- top bar ---------- */
 
 .topbar {
