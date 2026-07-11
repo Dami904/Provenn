@@ -12,6 +12,7 @@ import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PublicKey } from "@solana/web3.js";
 import { ProvennChainClient } from "../src/chain/provenn.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,12 +49,62 @@ let agentCache: { at: number; value: unknown } | null = null;
 let commitsCache: { at: number; value: unknown } | null = null;
 let chainClient: ProvennChainClient | null = null;
 
+let agentsCache: { at: number; value: unknown } | null = null;
+
+/**
+ * Everything this server reads is public chain state, so a signing wallet is
+ * optional: use one if configured (WALLET_KEYPAIR / ~/.config/solana/id.json),
+ * else fall back to a read-only connection. AGENT_AUTHORITY (a pubkey) selects
+ * which agent /api/agent shows when there is no wallet.
+ */
+function getChain(): ProvennChainClient {
+  if (!chainClient) {
+    try {
+      chainClient = ProvennChainClient.connect();
+    } catch {
+      console.error("[serve-api] no wallet configured — serving chain state read-only");
+      chainClient = ProvennChainClient.connectReadOnly();
+    }
+  }
+  return chainClient;
+}
+
+function agentAuthority(chain: ProvennChainClient): PublicKey | null {
+  if (process.env.AGENT_AUTHORITY) return new PublicKey(process.env.AGENT_AUTHORITY);
+  return chain.readOnly ? null : chain.wallet.publicKey;
+}
+
+/** The open registry — every agent account, ranked by mean Brier. */
+async function readAgents(): Promise<unknown> {
+  if (agentsCache && Date.now() - agentsCache.at < AGENT_CACHE_MS) return agentsCache.value;
+  try {
+    const agents = await getChain().allAgents();
+    const value = agents
+      .map((a) => ({
+        name: a.name,
+        pubkey: a.authority.toString(),
+        totalCommits: Number(a.totalCommits),
+        revealed: Number(a.revealedCount),
+        brierBps: Number(a.cumulativeBrierBps),
+      }))
+      .sort((x, y) => {
+        const mx = x.totalCommits ? x.brierBps / x.totalCommits : Infinity;
+        const my = y.totalCommits ? y.brierBps / y.totalCommits : Infinity;
+        return mx - my;
+      });
+    agentsCache = { at: Date.now(), value };
+    return value;
+  } catch (err) {
+    console.error(`[serve-api] on-chain agents fetch failed: ${err instanceof Error ? err.message : err}`);
+    return agentsCache?.value ?? [];
+  }
+}
+
 /** The on-chain commit ledger — every commit account on the program. */
 async function readCommits(): Promise<unknown> {
   if (commitsCache && Date.now() - commitsCache.at < AGENT_CACHE_MS) return commitsCache.value;
   try {
-    chainClient ??= await ProvennChainClient.connect();
-    const commits = await chainClient.allCommits();
+    const commits = await getChain().allCommits();
     const value = commits
       .map((c) => ({
         matchId: c.matchId.toString(),
@@ -79,8 +130,9 @@ async function readCommits(): Promise<unknown> {
 async function readAgent(): Promise<unknown> {
   if (agentCache && Date.now() - agentCache.at < AGENT_CACHE_MS) return agentCache.value;
   try {
-    chainClient ??= await ProvennChainClient.connect();
-    const a = await chainClient.fetchAgent();
+    const chain = getChain();
+    const authority = agentAuthority(chain);
+    const a = authority ? await chain.fetchAgent(authority) : undefined;
     const value = a
       ? {
           name: a.name,
@@ -118,6 +170,11 @@ createServer((req, res) => {
   } else if (req.url === "/api/commits") {
     void readCommits().then(
       (commits) => res.writeHead(200, headers).end(JSON.stringify(commits)),
+      () => res.writeHead(200, headers).end("[]"),
+    );
+  } else if (req.url === "/api/agents") {
+    void readAgents().then(
+      (agents) => res.writeHead(200, headers).end(JSON.stringify(agents)),
       () => res.writeHead(200, headers).end("[]"),
     );
   } else {

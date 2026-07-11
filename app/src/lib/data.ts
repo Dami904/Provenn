@@ -32,16 +32,30 @@ export interface DashboardState {
   rows: LedgerRow[];
   watch: WatchCard[];
   agent: AgentInfo | null;
+  agents: AgentInfo[];
   updatedAt: Date | null;
   demo: boolean;
   connected: boolean;
 }
+
+const DEMO_AGENTS: AgentInfo[] = [
+  {
+    name: "provenn-wc-agent",
+    pubkey: "Cr4NpDSDCxdry4zjq879iD21k5nLJKuUBt11LcadDpWB",
+    totalCommits: 4,
+    revealed: 3,
+    brierBps: 16250,
+  },
+  { name: "steamchaser", pubkey: "9xQeWvG816bUx9EPjHmaT7wYfbYcNmp4qBB1EWCkVh6d", totalCommits: 7, revealed: 7, brierBps: 41300 },
+  { name: "closing-line-carl", pubkey: "4Nd1mYbTgQpXzW8kFhLrJvC2sD5eA7uP6qRnB3tKmZa9", totalCommits: 2, revealed: 1, brierBps: 14100 },
+];
 
 export function useDashboard(): DashboardState {
   const [state, setState] = useState<DashboardState>({
     rows: [],
     watch: [],
     agent: null,
+    agents: [],
     updatedAt: null,
     demo: isDemo(),
     connected: false,
@@ -53,9 +67,10 @@ export function useDashboard(): DashboardState {
 
     async function tick() {
       const logUrl = demo ? "/demo-log.json" : `${API_BASE}/api/log`;
-      const [events, commits] = await Promise.all([
+      const [events, commits, agents] = await Promise.all([
         fetchJson<LogEvent[]>(logUrl),
         demo ? Promise.resolve<ChainCommit[] | null>([]) : fetchJson<ChainCommit[]>(`${API_BASE}/api/commits`),
+        demo ? Promise.resolve<AgentInfo[] | null>(DEMO_AGENTS) : fetchJson<AgentInfo[]>(`${API_BASE}/api/agents`),
       ]);
       const agent = demo
         ? {
@@ -72,7 +87,15 @@ export function useDashboard(): DashboardState {
         const { rows, watch, fixtureNames } = foldEvents(events);
         const merged = mergeChainCommits(rows, commits ?? [], fixtureNames);
         if (demo) for (const w of watch) synthesizeHistory(w);
-        setState({ rows: merged, watch, agent, updatedAt: new Date(), demo, connected: true });
+        setState({
+          rows: merged,
+          watch,
+          agent,
+          agents: agents ?? [],
+          updatedAt: new Date(),
+          demo,
+          connected: true,
+        });
       } else {
         setState((s) => ({ ...s, agent: agent ?? s.agent, demo, connected: false }));
       }

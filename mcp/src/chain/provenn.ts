@@ -65,12 +65,15 @@ export function loadWalletKeypair(path?: string): Keypair {
 export class ProvennChainClient {
   readonly connection: Connection;
   readonly wallet: Keypair;
+  /** True when constructed without a real wallet — reads work, signing methods must not be called. */
+  readonly readOnly: boolean;
   // anchor's Program generic typing adds little here; the IDL is loaded at runtime.
   private readonly program: InstanceType<typeof Program>;
 
-  constructor(rpcUrl: string, wallet: Keypair) {
+  constructor(rpcUrl: string, wallet: Keypair, readOnly = false) {
     this.connection = new Connection(rpcUrl, "confirmed");
     this.wallet = wallet;
+    this.readOnly = readOnly;
     const provider = new AnchorProvider(this.connection, new Wallet(wallet), {
       commitment: "confirmed",
     });
@@ -80,6 +83,15 @@ export class ProvennChainClient {
 
   static connect(rpcUrl: string = DEVNET_RPC, walletPath?: string): ProvennChainClient {
     return new ProvennChainClient(rpcUrl, loadWalletKeypair(walletPath));
+  }
+
+  /**
+   * Connect without a wallet — every account on the program is public, so
+   * reads (fetchAgent(authority), allAgents, allCommits) need no key. The
+   * ephemeral keypair never signs anything.
+   */
+  static connectReadOnly(rpcUrl: string = DEVNET_RPC): ProvennChainClient {
+    return new ProvennChainClient(rpcUrl, Keypair.generate(), true);
   }
 
   agentPda(authority: PublicKey = this.wallet.publicKey): PublicKey {
@@ -172,6 +184,21 @@ export class ProvennChainClient {
       },
       brierBps: BigInt(acc.brierBps.toString()),
     };
+  }
+
+  /** All registered agent accounts — the open registry. */
+  async allAgents(): Promise<AgentState[]> {
+    const accs = (await (this.program.account as any).agentAccount.all()) as Array<{
+      account: any;
+    }>;
+    return accs.map(({ account: acc }) => ({
+      authority: acc.authority,
+      name: acc.name,
+      strategyHash: Uint8Array.from(acc.strategyHash),
+      totalCommits: BigInt(acc.totalCommits.toString()),
+      revealedCount: BigInt(acc.revealedCount.toString()),
+      cumulativeBrierBps: BigInt(acc.cumulativeBrierBps.toString()),
+    }));
   }
 
   /** All commit accounts on the program (the whole public ledger, any agent). */

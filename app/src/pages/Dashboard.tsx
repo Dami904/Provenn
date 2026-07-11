@@ -3,7 +3,7 @@ import { ProbChart } from "../components/ProbChart";
 import { Ticker } from "../components/Ticker";
 import { explorerTx, meanBrier, shortHash, type DashboardState } from "../lib/data";
 import { onLinkClick } from "../lib/router";
-import { OUTCOME_LABELS, type LedgerRow, type Phase } from "../lib/types";
+import { OUTCOME_LABELS, type AgentInfo, type LedgerRow, type Phase } from "../lib/types";
 
 function CopyChip({ value, display }: { value: string; display?: string }) {
   const [copied, setCopied] = useState(false);
@@ -116,7 +116,7 @@ function matchesFilter(row: LedgerRow, f: Filter): boolean {
 }
 
 export function Dashboard({ state }: { state: DashboardState }) {
-  const { rows, watch, agent, updatedAt, demo, connected } = state;
+  const { rows, watch, agent, agents, updatedAt, demo, connected } = state;
   const [filter, setFilter] = useState<Filter>("all");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [chartMatch, setChartMatch] = useState<string | null>(null);
@@ -254,40 +254,63 @@ export function Dashboard({ state }: { state: DashboardState }) {
 
       <section className="rise" style={{ "--i": 2 } as React.CSSProperties}>
         <h2 className="section-title">Leaderboard</h2>
-        {agent ? (
-          <div className="ledger-scroll">
-            <table className="ledger compact">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Agent</th>
-                  <th>Commits</th>
-                  <th>Revealed</th>
-                  <th>Mean Brier</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="mono">1</td>
-                  <td>
-                    {agent.name ?? "agent"} {agent.pubkey && <CopyChip value={agent.pubkey} />}
-                  </td>
-                  <td className="mono">{agent.totalCommits ?? 0}</td>
-                  <td className="mono">
-                    {agent.totalCommits
-                      ? `${Math.round(((agent.revealed ?? 0) / agent.totalCommits) * 100)}%`
-                      : "—"}
-                  </td>
-                  <td className="mono">{meanBrier(agent)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="empty">One agent registered. The registry is open — any agent can be scored here.</div>
-        )}
+        <Leaderboard agents={agents.length ? agents : agent ? [agent] : []} self={agent?.pubkey} />
       </section>
     </div>
+  );
+}
+
+function Leaderboard({ agents, self }: { agents: AgentInfo[]; self?: string }) {
+  const ranked = useMemo(
+    () =>
+      [...agents].sort((a, b) => {
+        const ma = a.totalCommits ? (a.brierBps ?? 0) / a.totalCommits : Infinity;
+        const mb = b.totalCommits ? (b.brierBps ?? 0) / b.totalCommits : Infinity;
+        return ma - mb;
+      }),
+    [agents],
+  );
+
+  if (ranked.length === 0) {
+    return <div className="empty">The registry is open — any agent can register and be scored here.</div>;
+  }
+  return (
+    <>
+      <div className="ledger-scroll">
+        <table className="ledger compact">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Agent</th>
+              <th>Commits</th>
+              <th>Revealed</th>
+              <th>Mean Brier</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map((a, i) => (
+              <tr key={a.pubkey ?? i} className="rise" style={{ "--i": i } as React.CSSProperties}>
+                <td className="mono">{i + 1}</td>
+                <td>
+                  {a.name ?? "agent"} {a.pubkey && <CopyChip value={a.pubkey} />}
+                  {self && a.pubkey === self && <span className="badge">THIS AGENT</span>}
+                </td>
+                <td className="mono">{a.totalCommits ?? 0}</td>
+                <td className="mono">
+                  {a.totalCommits ? `${Math.round(((a.revealed ?? 0) / a.totalCommits) * 100)}%` : "—"}
+                </td>
+                <td className="mono">{meanBrier(a)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="footnote">
+        Ranked by mean Brier over each agent's complete on-chain record — unrevealed commits score the
+        maximum 1.000 loss, so hiding a bad call is worse than revealing it. Recompute any score yourself
+        from the raw accounts.
+      </p>
+    </>
   );
 }
 
