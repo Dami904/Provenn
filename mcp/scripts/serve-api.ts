@@ -45,7 +45,36 @@ function readAgentFile(): unknown {
 
 const AGENT_CACHE_MS = 60_000;
 let agentCache: { at: number; value: unknown } | null = null;
+let commitsCache: { at: number; value: unknown } | null = null;
 let chainClient: ProvennChainClient | null = null;
+
+/** The on-chain commit ledger — every commit account on the program. */
+async function readCommits(): Promise<unknown> {
+  if (commitsCache && Date.now() - commitsCache.at < AGENT_CACHE_MS) return commitsCache.value;
+  try {
+    chainClient ??= await ProvennChainClient.connect();
+    const commits = await chainClient.allCommits();
+    const value = commits
+      .map((c) => ({
+        matchId: c.matchId.toString(),
+        agent: c.agent.toString(),
+        hash: Buffer.from(c.predictionHash).toString("hex"),
+        slot: Number(c.slot),
+        ts: Number(c.unixTimestamp) * 1000,
+        revealed: c.revealed,
+        settled: c.settled,
+        outcome: c.revealed ? c.prediction.outcome : undefined,
+        confidenceBps: c.revealed ? c.prediction.confidence_bps : undefined,
+        brierBps: c.settled ? Number(c.brierBps) : undefined,
+      }))
+      .sort((a, b) => b.slot - a.slot);
+    commitsCache = { at: Date.now(), value };
+    return value;
+  } catch (err) {
+    console.error(`[serve-api] on-chain commits fetch failed: ${err instanceof Error ? err.message : err}`);
+    return commitsCache?.value ?? [];
+  }
+}
 
 async function readAgent(): Promise<unknown> {
   if (agentCache && Date.now() - agentCache.at < AGENT_CACHE_MS) return agentCache.value;
@@ -85,6 +114,11 @@ createServer((req, res) => {
     void readAgent().then(
       (agent) => res.writeHead(200, headers).end(JSON.stringify(agent ?? null)),
       () => res.writeHead(200, headers).end("null"),
+    );
+  } else if (req.url === "/api/commits") {
+    void readCommits().then(
+      (commits) => res.writeHead(200, headers).end(JSON.stringify(commits)),
+      () => res.writeHead(200, headers).end("[]"),
     );
   } else {
     res.writeHead(404, headers).end(JSON.stringify({ error: "not found" }));

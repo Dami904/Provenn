@@ -173,4 +173,25 @@ export class ProvennChainClient {
       brierBps: BigInt(acc.brierBps.toString()),
     };
   }
+
+  /** All commit accounts on the program (the whole public ledger, any agent). */
+  async allCommits(): Promise<CommitState[]> {
+    const accs = (await (this.program.account as any).commitAccount.all()) as Array<{
+      account: any;
+    }>;
+    return accs.map(({ account: acc }) => ({
+      agent: acc.agent,
+      matchId: BigInt(acc.matchId.toString()),
+      predictionHash: Uint8Array.from(acc.predictionHash),
+      slot: BigInt(acc.slot.toString()),
+      unixTimestamp: BigInt(acc.unixTimestamp.toString()),
+      revealed: acc.revealed,
+      settled: acc.settled,
+      prediction: {
+        outcome: acc.prediction.outcome,
+        confidence_bps: acc.prediction.confidenceBps,
+      },
+      brierBps: BigInt(acc.brierBps.toString()),
+    }));
+  }
 }

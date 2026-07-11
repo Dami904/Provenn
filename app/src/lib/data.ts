@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { foldEvents, type AgentInfo, type LedgerRow, type LogEvent, type WatchCard } from "./types";
+import {
+  foldEvents,
+  mergeChainCommits,
+  type AgentInfo,
+  type ChainCommit,
+  type LedgerRow,
+  type LogEvent,
+  type WatchCard,
+} from "./types";
 
 const POLL_MS = 5000;
 
@@ -45,7 +53,10 @@ export function useDashboard(): DashboardState {
 
     async function tick() {
       const logUrl = demo ? "/demo-log.json" : `${API_BASE}/api/log`;
-      const events = await fetchJson<LogEvent[]>(logUrl);
+      const [events, commits] = await Promise.all([
+        fetchJson<LogEvent[]>(logUrl),
+        demo ? Promise.resolve<ChainCommit[] | null>([]) : fetchJson<ChainCommit[]>(`${API_BASE}/api/commits`),
+      ]);
       const agent = demo
         ? {
             name: "provenn-wc-agent",
@@ -58,8 +69,9 @@ export function useDashboard(): DashboardState {
         : await fetchJson<AgentInfo>(`${API_BASE}/api/agent`);
 
       if (events) {
-        const { rows, watch } = foldEvents(events);
-        setState({ rows, watch, agent, updatedAt: new Date(), demo, connected: true });
+        const { rows, watch, fixtureNames } = foldEvents(events);
+        const merged = mergeChainCommits(rows, commits ?? [], fixtureNames);
+        setState({ rows: merged, watch, agent, updatedAt: new Date(), demo, connected: true });
       } else {
         setState((s) => ({ ...s, agent: agent ?? s.agent, demo, connected: false }));
       }

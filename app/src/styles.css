@@ -1,12 +1,12 @@
 :root {
-  --bg: #14171a;
-  --panel: #1c2126;
-  --border: #2a3138;
-  --text: #e8e6e1;
-  --muted: #8a9199;
-  --green: #5bbd8b;
-  --amber: #c9a961;
-  --red: #c96161;
+  --bg: #fafaf7;
+  --panel: #f1f1ec;
+  --border: #dcdcd3;
+  --text: #22262b;
+  --muted: #6d7379;
+  --green: #257a52;
+  --amber: #8f6a14;
+  --red: #a83c3c;
   --mono: "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, ui-monospace, monospace;
 }
 
