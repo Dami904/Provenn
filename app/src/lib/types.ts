@@ -64,6 +64,11 @@ export interface LedgerRow {
   phase: Phase;
 }
 
+export interface ProbPoint {
+  t: number; // epoch ms
+  probs: number[]; // [home, draw, away], normalized
+}
+
 export interface WatchCard {
   matchId: string;
   fixture: string;
@@ -72,6 +77,7 @@ export interface WatchCard {
   integrityOk?: boolean;
   reason?: string;
   time?: string;
+  history: ProbPoint[];
 }
 
 export interface AgentInfo {
@@ -89,10 +95,15 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" ? v : typeof v === "number" ? String(v) : undefined;
 }
 
-function timeOf(e: LogEvent): string | undefined {
+function tsMsOf(e: LogEvent): number | undefined {
   if (e.ts === undefined) return undefined;
   const d = typeof e.ts === "number" ? new Date(e.ts) : new Date(String(e.ts));
-  return isNaN(d.getTime()) ? undefined : d.toISOString().slice(11, 19) + " UTC";
+  return isNaN(d.getTime()) ? undefined : d.getTime();
+}
+
+function timeOf(e: LogEvent): string | undefined {
+  const ms = tsMsOf(e);
+  return ms === undefined ? undefined : new Date(ms).toISOString().slice(11, 19) + " UTC";
 }
 
 /** Decimal 1X2 prices -> normalized implied probabilities [home, draw, away]. */
@@ -148,10 +159,17 @@ export function foldEvents(events: LogEvent[]): {
       e.kind === "no_1x2_market" ||
       e.kind === "integrity_gated";
     if (isWatchEvent) {
-      const w = watch.get(id) ?? { matchId: id, fixture: e.fixture ?? id };
+      const w = watch.get(id) ?? { matchId: id, fixture: e.fixture ?? id, history: [] };
       if (e.fixture) w.fixture = e.fixture;
       const probs = e.probs ?? (e.prices ? pricesToProbs(e.prices) : undefined);
-      if (probs) w.probs = probs;
+      if (probs) {
+        w.probs = probs;
+        const t = tsMsOf(e);
+        if (t !== undefined) {
+          w.history.push({ t, probs });
+          if (w.history.length > 300) w.history.splice(0, w.history.length - 300);
+        }
+      }
       const drift = e.driftPct ?? driftFromReason(e.reason);
       if (drift !== undefined) w.driftPct = drift;
       if (e.integrityOk !== undefined) w.integrityOk = e.integrityOk;

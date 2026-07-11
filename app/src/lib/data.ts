@@ -71,6 +71,7 @@ export function useDashboard(): DashboardState {
       if (events) {
         const { rows, watch, fixtureNames } = foldEvents(events);
         const merged = mergeChainCommits(rows, commits ?? [], fixtureNames);
+        if (demo) for (const w of watch) synthesizeHistory(w);
         setState({ rows: merged, watch, agent, updatedAt: new Date(), demo, connected: true });
       } else {
         setState((s) => ({ ...s, agent: agent ?? s.agent, demo, connected: false }));
@@ -83,6 +84,34 @@ export function useDashboard(): DashboardState {
   }, []);
 
   return state;
+}
+
+/** Deterministic PRNG so demo charts are stable across polls. */
+function mulberry32(seed: number): () => number {
+  return () => {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Demo only: back-fill a plausible 60-minute random walk ending at current probs. */
+function synthesizeHistory(w: { matchId: string; probs?: number[]; history: { t: number; probs: number[] }[] }): void {
+  if (!w.probs || w.probs.length !== 3 || w.history.length >= 5) return;
+  const rand = mulberry32([...w.matchId].reduce((a, c) => a * 31 + c.charCodeAt(0), 7));
+  const points = 40;
+  const end = Date.now();
+  let probs = [...w.probs];
+  const series: { t: number; probs: number[] }[] = [{ t: end, probs: [...probs] }];
+  for (let i = 1; i < points; i++) {
+    probs = probs.map((p) => Math.max(0.03, p + (rand() - 0.5) * 0.02));
+    const sum = probs.reduce((a, b) => a + b, 0);
+    probs = probs.map((p) => p / sum);
+    series.unshift({ t: end - i * 90_000, probs: [...probs] });
+  }
+  w.history = series;
 }
 
 export function shortHash(h?: string, head = 8, tail = 6): string {

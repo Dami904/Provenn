@@ -1,0 +1,347 @@
+import { useMemo, useState } from "react";
+import { ProbChart } from "../components/ProbChart";
+import { Ticker } from "../components/Ticker";
+import { explorerTx, meanBrier, shortHash, type DashboardState } from "../lib/data";
+import { onLinkClick } from "../lib/router";
+import { OUTCOME_LABELS, type LedgerRow, type Phase } from "../lib/types";
+
+function CopyChip({ value, display }: { value: string; display?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className={`chip${copied ? " copied" : ""}`}
+      title={value}
+      onClick={(e) => {
+        e.stopPropagation();
+        void navigator.clipboard.writeText(value).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+    >
+      {copied ? "copied" : (display ?? shortHash(value))}
+    </button>
+  );
+}
+
+function PhaseBadge({ phase }: { phase: Phase }) {
+  if (phase === "unrevealed-loss") return <span className="badge loss">UNREVEALED — SCORED AS LOSS</span>;
+  if (phase === "settled") return <span className="badge settled">SETTLED</span>;
+  if (phase === "revealed") return <span className="badge">REVEALED</span>;
+  return <span className="badge committed">COMMITTED</span>;
+}
+
+function TxLink({ sig, label }: { sig?: string; label: string }) {
+  if (!sig) return null;
+  return (
+    <a href={explorerTx(sig)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+      {label}
+    </a>
+  );
+}
+
+function RowDetail({ row }: { row: LedgerRow }) {
+  return (
+    <tr className="detail">
+      <td colSpan={7}>
+        <div className="detail-inner">
+          <dl className="detail-grid">
+            <dt>Match ID</dt>
+            <dd>{row.matchId}</dd>
+            {row.prediction !== undefined && (
+              <>
+                <dt>Prediction</dt>
+                <dd>{JSON.stringify(row.prediction)}</dd>
+              </>
+            )}
+            {row.nonce && (
+              <>
+                <dt>Nonce</dt>
+                <dd>{row.nonce}</dd>
+              </>
+            )}
+            {row.hash && (
+              <>
+                <dt>Commit hash</dt>
+                <dd>{row.hash}</dd>
+              </>
+            )}
+            {row.commitTx && (
+              <>
+                <dt>Commit tx</dt>
+                <dd>
+                  <TxLink sig={row.commitTx} label={row.commitTx} />
+                </dd>
+              </>
+            )}
+            {row.revealTx && (
+              <>
+                <dt>Reveal tx</dt>
+                <dd>
+                  <TxLink sig={row.revealTx} label={row.revealTx} />
+                </dd>
+              </>
+            )}
+            {row.settleTx && (
+              <>
+                <dt>Settle tx</dt>
+                <dd>
+                  <TxLink sig={row.settleTx} label={row.settleTx} />
+                </dd>
+              </>
+            )}
+          </dl>
+          {row.hash && (
+            <div className="equation">
+              sha256(prediction ‖ nonce) = {row.hash}{" "}
+              {row.revealTx || row.phase === "settled" ? (
+                <span className="ok">✓ verified on reveal</span>
+              ) : (
+                <span>· awaiting reveal</span>
+              )}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+type Filter = "all" | "open" | "settled";
+
+function matchesFilter(row: LedgerRow, f: Filter): boolean {
+  if (f === "all") return true;
+  if (f === "open") return row.phase === "committed" || row.phase === "revealed";
+  return row.phase === "settled" || row.phase === "unrevealed-loss";
+}
+
+export function Dashboard({ state }: { state: DashboardState }) {
+  const { rows, watch, agent, updatedAt, demo, connected } = state;
+  const [filter, setFilter] = useState<Filter>("all");
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  const [chartMatch, setChartMatch] = useState<string | null>(null);
+
+  const visible = useMemo(() => rows.filter((r) => matchesFilter(r, filter)), [rows, filter]);
+  const chartCard = watch.find((w) => w.matchId === chartMatch);
+
+  return (
+    <div className="wrap page">
+      <div className="topbar">
+        <h2 className="wordmark">
+          <a href="/" onClick={onLinkClick} className="home-link">
+            ← PROVENN
+          </a>
+          <small>agent dashboard</small>
+        </h2>
+        <div className="agent-id">
+          {agent?.name && <span>{agent.name}</span>}
+          {agent?.pubkey && <CopyChip value={agent.pubkey} />}
+          {agent?.registeredSlot !== undefined && <span>registered @ slot {agent.registeredSlot}</span>}
+          {agent && (
+            <span>
+              {agent.totalCommits ?? 0} commits · {agent.revealed ?? 0} revealed
+            </span>
+          )}
+        </div>
+        <div className="brier">
+          <div className="value mono">{meanBrier(agent)}</div>
+          <div className="label">mean Brier — lower is better</div>
+        </div>
+      </div>
+
+      <Ticker watch={watch} />
+
+      <div className="status-line">
+        <span className={`dot${connected ? " ok" : ""}`} />
+        {demo
+          ? "Demo data — remove ?demo from the URL to connect to the live agent."
+          : connected
+            ? `Live · updated ${updatedAt ? updatedAt.toLocaleTimeString() : ""}`
+            : "Waiting for the agent API…"}
+      </div>
+
+      <section className="rise" style={{ "--i": 0 } as React.CSSProperties}>
+        <h2 className="section-title">Live watch</h2>
+        {watch.length === 0 ? (
+          <div className="empty">Watching for World Cup fixtures…</div>
+        ) : (
+          <>
+            <div className="watch-row">
+              {watch.map((w, i) => (
+                <article
+                  className={`watch-card rise${chartMatch === w.matchId ? " selected" : ""}`}
+                  style={{ "--i": i } as React.CSSProperties}
+                  key={w.matchId}
+                  onClick={() => setChartMatch(chartMatch === w.matchId ? null : w.matchId)}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") setChartMatch(chartMatch === w.matchId ? null : w.matchId);
+                  }}
+                  aria-expanded={chartMatch === w.matchId}
+                >
+                  <h3>{w.fixture}</h3>
+                  {w.probs?.length === 3 &&
+                    w.probs.map((p, j) => (
+                      <div className="prob" key={j}>
+                        <span>{OUTCOME_LABELS[j]}</span>
+                        <span className="bar">
+                          <i style={{ width: `${Math.round(p * 100)}%` }} />
+                        </span>
+                        <span className="mono">{(p * 100).toFixed(1)}%</span>
+                      </div>
+                    ))}
+                  <div className="watch-meta">
+                    <span>drift {w.driftPct !== undefined ? `${w.driftPct.toFixed(2)}%` : "—"}</span>
+                    <span>{w.integrityOk === false ? `gated: ${w.reason ?? "bad feed"}` : "view chart ↓"}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            {chartCard && (
+              <div className="chart-panel rise">
+                <div className="chart-title">
+                  <b>{chartCard.fixture}</b> — implied probability, live
+                </div>
+                <ProbChart history={chartCard.history} />
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="rise" style={{ "--i": 1 } as React.CSSProperties}>
+        <h2 className="section-title">Commit ledger</h2>
+        <div className="tabs" role="tablist">
+          {(["all", "open", "settled"] as const).map((f) => (
+            <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
+              {f === "all" ? "All" : f === "open" ? "Open" : "Settled"}
+            </button>
+          ))}
+        </div>
+        {visible.length === 0 ? (
+          <div className="empty">
+            No commitments yet. Every signal lands here before the match ends — or scores as a loss.
+          </div>
+        ) : (
+          <div className="ledger-scroll">
+            <table className="ledger">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Fixture</th>
+                  <th>Signal</th>
+                  <th>Confidence</th>
+                  <th>Phase</th>
+                  <th>Proof</th>
+                  <th>Brier</th>
+                </tr>
+              </thead>
+              <tbody key={filter}>
+                {visible.map((row, i) => (
+                  <LedgerRowView
+                    key={row.matchId}
+                    row={row}
+                    index={i}
+                    open={openRow === row.matchId}
+                    onToggle={() => setOpenRow(openRow === row.matchId ? null : row.matchId)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="rise" style={{ "--i": 2 } as React.CSSProperties}>
+        <h2 className="section-title">Leaderboard</h2>
+        {agent ? (
+          <div className="ledger-scroll">
+            <table className="ledger compact">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Agent</th>
+                  <th>Commits</th>
+                  <th>Revealed</th>
+                  <th>Mean Brier</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="mono">1</td>
+                  <td>
+                    {agent.name ?? "agent"} {agent.pubkey && <CopyChip value={agent.pubkey} />}
+                  </td>
+                  <td className="mono">{agent.totalCommits ?? 0}</td>
+                  <td className="mono">
+                    {agent.totalCommits
+                      ? `${Math.round(((agent.revealed ?? 0) / agent.totalCommits) * 100)}%`
+                      : "—"}
+                  </td>
+                  <td className="mono">{meanBrier(agent)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty">One agent registered. The registry is open — any agent can be scored here.</div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function LedgerRowView({
+  row,
+  index,
+  open,
+  onToggle,
+}: {
+  row: LedgerRow;
+  index: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr
+        className="row rise"
+        style={{ "--i": index } as React.CSSProperties}
+        onClick={onToggle}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        aria-expanded={open}
+      >
+        <td className="mono">{row.time ?? "—"}</td>
+        <td>{row.fixture}</td>
+        <td>
+          {row.outcome !== undefined ? OUTCOME_LABELS[row.outcome] : "—"}
+          {row.driftPct !== undefined && (
+            <span className="mono" style={{ color: "var(--muted)" }}>
+              {" "}
+              {row.driftPct > 0 ? "+" : ""}
+              {row.driftPct.toFixed(2)}%
+            </span>
+          )}
+        </td>
+        <td className="mono">
+          {row.confidenceBps !== undefined ? `${(row.confidenceBps / 100).toFixed(1)}%` : "—"}
+        </td>
+        <td>
+          <PhaseBadge phase={row.phase} />
+        </td>
+        <td>
+          {row.hash && <CopyChip value={row.hash} />} <TxLink sig={row.commitTx} label="commit" />{" "}
+          <TxLink sig={row.revealTx} label="reveal" /> <TxLink sig={row.settleTx} label="settle" />
+        </td>
+        <td className="mono">{row.brierBps !== undefined ? (row.brierBps / 10000).toFixed(3) : "—"}</td>
+      </tr>
+      {open && <RowDetail row={row} />}
+    </>
+  );
+}
