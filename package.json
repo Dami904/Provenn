@@ -1,0 +1,14 @@
+{
+  "name": "provenn",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "mcp",
+    "app"
+  ],
+  "scripts": {
+    "dev:mcp": "npm run dev --workspace=@provenn/mcp",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm test --workspace=@provenn/mcp"
+  }
+}

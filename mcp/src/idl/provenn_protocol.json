@@ -1,0 +1,637 @@
+{
+  "address": "Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2",
+  "metadata": {
+    "name": "provenn_protocol",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Provenn — unfakeable AI trading agent track records on Solana"
+  },
+  "instructions": [
+    {
+      "name": "commit",
+      "docs": [
+        "Commit to a prediction for a match, before the fact.",
+        "",
+        "Stores only `prediction_hash = sha256(prediction_bytes || nonce)` plus",
+        "the chain's own slot and unix timestamp. The prediction itself stays",
+        "secret until reveal, so committing leaks no alpha — but the timestamp",
+        "proves the call was made in advance.",
+        "",
+        "Trust model: the commit PDA (seeds: `[\"commit\", agent, match_id]`)",
+        "allows exactly one commit per agent per match; there is no way to",
+        "commit twice and later keep only the winner. **Unrevealed commits",
+        "score as losses — silence is penalized.**"
+      ],
+      "discriminator": [
+        223,
+        140,
+        142,
+        165,
+        229,
+        208,
+        156,
+        74
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "commit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        },
+        {
+          "name": "prediction_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "register_agent",
+      "docs": [
+        "Register a new agent.",
+        "",
+        "Creates the agent's identity PDA (seeds: `[\"agent\", authority]`) and",
+        "binds it to a `strategy_hash` — a hash of the agent's strategy",
+        "description/code, committed up front so the operator cannot quietly",
+        "swap strategies while keeping the track record.",
+        "",
+        "Trust model: one agent account per authority keypair. The track record",
+        "lives on this PDA and is only ever written by protocol instructions —",
+        "never directly by the operator."
+      ],
+      "discriminator": [
+        135,
+        157,
+        66,
+        195,
+        2,
+        113,
+        175,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "strategy_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "reveal",
+      "docs": [
+        "Reveal a previously committed prediction.",
+        "",
+        "Verifies `sha256(prediction_bytes || nonce)` against the stored",
+        "`prediction_hash` (prediction_bytes = Borsh serialization of",
+        "`Prediction`). Must happen BEFORE `settle` for this commit; a reveal",
+        "after settlement is rejected because the unrevealed commit has already",
+        "been scored as a loss.",
+        "",
+        "Trust model: the hash check makes it impossible to reveal anything",
+        "other than what was committed. **Unrevealed commits score as losses —",
+        "silence is penalized**, so a rational agent always reveals, win or",
+        "lose."
+      ],
+      "discriminator": [
+        9,
+        35,
+        59,
+        190,
+        167,
+        249,
+        76,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "commit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "_match_id",
+          "type": "u64"
+        },
+        {
+          "name": "prediction",
+          "type": {
+            "defined": {
+              "name": "Prediction"
+            }
+          }
+        },
+        {
+          "name": "nonce",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "settle",
+      "docs": [
+        "Settle a commit against the actual match outcome and accumulate the",
+        "agent's Brier score.",
+        "",
+        "TODO(oracle): currently gated on the hardcoded `SETTLE_AUTHORITY`",
+        "admin signer. Replace with on-chain verification of a TxLINE",
+        "validation proof (signed result attestation from the feed) so results",
+        "need no trusted admin.",
+        "",
+        "## Scoring (basis points, lower is better)",
+        "",
+        "We collapse the 3-way market to a two-outcome Brier score on the",
+        "PREDICTED outcome: the agent stakes probability `p` (confidence_bps)",
+        "on its pick, and implicitly `1 - p` on \"not my pick\". This is a",
+        "deliberate simplification of the full multi-category Brier score —",
+        "the agent does not publish a full distribution over home/draw/away,",
+        "only its pick and confidence, so we score exactly what was committed:",
+        "",
+        "- revealed and correct:  `brier_bps = (10000 - p)^2 / 10000`",
+        "- revealed and wrong:    `brier_bps = p^2 / 10000`",
+        "- unrevealed:            `brier_bps = 10000` (maximally wrong)",
+        "",
+        "**Unrevealed commits score as losses — silence is penalized.** This is",
+        "the core mechanism that makes the track record unfakeable: you cannot",
+        "bury your bad calls, and a maximally-confident wrong call costs as",
+        "much as never showing up."
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true
+        },
+        {
+          "name": "commit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "settle_authority",
+          "docs": [
+            "TODO(oracle): replace admin signer with TxLINE validation-proof check."
+          ],
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "_match_id",
+          "type": "u64"
+        },
+        {
+          "name": "actual_outcome",
+          "type": "u8"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AgentAccount",
+      "discriminator": [
+        241,
+        119,
+        69,
+        140,
+        233,
+        9,
+        112,
+        50
+      ]
+    },
+    {
+      "name": "CommitAccount",
+      "discriminator": [
+        249,
+        25,
+        21,
+        196,
+        87,
+        200,
+        118,
+        188
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NameTooLong",
+      "msg": "Agent name exceeds maximum length"
+    },
+    {
+      "code": 6001,
+      "name": "AlreadyRevealed",
+      "msg": "Prediction was already revealed"
+    },
+    {
+      "code": 6002,
+      "name": "HashMismatch",
+      "msg": "Revealed prediction does not match the committed hash"
+    },
+    {
+      "code": 6003,
+      "name": "RevealAfterSettle",
+      "msg": "Cannot reveal after settlement — unrevealed commits are scored as losses"
+    },
+    {
+      "code": 6004,
+      "name": "AlreadySettled",
+      "msg": "Commit was already settled"
+    },
+    {
+      "code": 6005,
+      "name": "NotAuthority",
+      "msg": "Signer is not the required authority"
+    },
+    {
+      "code": 6006,
+      "name": "CommitAgentMismatch",
+      "msg": "Commit does not belong to this agent"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidOutcome",
+      "msg": "Outcome must be 0 (home), 1 (draw) or 2 (away)"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidConfidence",
+      "msg": "Confidence must be between 0 and 10000 basis points"
+    },
+    {
+      "code": 6009,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "AgentAccount",
+      "docs": [
+        "An agent's on-chain identity and cumulative track record."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Keypair allowed to commit/reveal on behalf of this agent."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Display name."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "strategy_hash",
+            "docs": [
+              "Hash of the agent's strategy, committed at registration."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "total_commits",
+            "docs": [
+              "Total commits ever made (revealed or not)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "revealed_count",
+            "docs": [
+              "How many of those were revealed. `total - revealed` were auto-losses."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "cumulative_brier_bps",
+            "docs": [
+              "Sum of settled brier_bps. Mean Brier = cumulative / settled commits."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommitAccount",
+      "docs": [
+        "One prediction commit for one match by one agent."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "docs": [
+              "The agent PDA this commit belongs to."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "match_id",
+            "docs": [
+              "Match identifier (maps to the TxLINE match id off-chain)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "prediction_hash",
+            "docs": [
+              "sha256(borsh(Prediction) || nonce), committed before the match."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "slot",
+            "docs": [
+              "Slot at commit time — chain-attested \"when\"."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "unix_timestamp",
+            "docs": [
+              "Unix timestamp at commit time."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "revealed",
+            "docs": [
+              "Whether the prediction was revealed. Unrevealed at settle = auto-loss."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "settled",
+            "docs": [
+              "Whether this commit has been settled (scored)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "prediction",
+            "docs": [
+              "The revealed prediction (zeroed until reveal)."
+            ],
+            "type": {
+              "defined": {
+                "name": "Prediction"
+              }
+            }
+          },
+          {
+            "name": "brier_bps",
+            "docs": [
+              "The Brier loss assigned at settlement, in basis points."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Prediction",
+      "docs": [
+        "A revealed prediction: which outcome, and with what confidence."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outcome",
+            "docs": [
+              "0 = home win, 1 = draw, 2 = away win."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "confidence_bps",
+            "docs": [
+              "Confidence in the pick as basis points of probability (0..=10000)."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    }
+  ]
+}

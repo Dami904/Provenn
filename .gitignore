@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+captures/
+target/
+
+# Runtime artifacts (agent decision log + crash-safe state)
+mcp/agent-log.jsonl
+mcp/agent-state.json
+mcp/agent-state/
+
+# Internal notes — stay out of the public repo
+PLAN.md
+docs/txline-api-notes.md

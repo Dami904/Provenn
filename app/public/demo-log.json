@@ -1,0 +1,132 @@
+[
+  {
+    "ts": 1783792800000,
+    "kind": "watch",
+    "matchId": "18213979",
+    "fixture": "Norway v England",
+    "probs": [0.249, 0.255, 0.496],
+    "driftPct": 1.12,
+    "integrityOk": true
+  },
+  {
+    "ts": 1783792815000,
+    "kind": "watch",
+    "matchId": "18222446",
+    "fixture": "Argentina v Switzerland",
+    "probs": [0.512, 0.263, 0.225],
+    "driftPct": 5.61,
+    "integrityOk": true
+  },
+  {
+    "ts": 1783792830000,
+    "kind": "skip",
+    "matchId": "18220991",
+    "fixture": "Spain v Germany",
+    "integrityOk": false,
+    "reason": "stale feed: last snapshot 214s old"
+  },
+  {
+    "ts": 1783705500000,
+    "kind": "commit",
+    "matchId": "18209544",
+    "fixture": "France v Brazil",
+    "outcome": 0,
+    "driftPct": 6.02,
+    "confidenceBps": 6800,
+    "hash": "9f3ab1c07d55e2a4886c30cf12aa9be07d41c6a2b5580f3e9d27c4a1b8e06213",
+    "commitTx": "5oJ2mJx8sJt3kQmVvW4yZbHhTfE9cRaNnDpUuLwXeYgKq1CiA7B6M5N4P3R2S1T0VuWxYzAaBbCcDdEeFfGgHhIi"
+  },
+  {
+    "ts": 1783713600000,
+    "kind": "settle",
+    "matchId": "18209544",
+    "fixture": "France v Brazil",
+    "phase": "unrevealed-loss",
+    "settleTx": "2xY9zW8vU7tS6rQ5pO4nM3lK2jI1hG0fEeDdCcBbAa9Z8y7X6w5V4u3T2s1R0qPpOoNnMmLlKkJjIiHhGgFfEe",
+    "brierBps": 10000
+  },
+  {
+    "ts": 1783618200000,
+    "kind": "commit",
+    "matchId": "18209543",
+    "fixture": "Norway v Japan",
+    "outcome": 0,
+    "driftPct": 5.44,
+    "confidenceBps": 6600,
+    "hash": "c2e4d80f7a913b56d1c88e02f4ba67c93d05a1e8b26f4709ce3d1a5b7f80e424",
+    "nonce": "7d10a4c8e2f6b0935a1d8c7e4f2b6a0d3c9e5f18b4a7d20c6e9f31a5b8d4c7e0",
+    "prediction": { "outcome": 0, "confidence_bps": 6600 },
+    "commitTx": "3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3uV4wX5yZ6aB7cD8eF9gH0iJ1kL2mN3oP4qR5sT6uV7wX8yZ9aB0cD1eF2"
+  },
+  {
+    "ts": 1783624500000,
+    "kind": "reveal",
+    "matchId": "18209543",
+    "fixture": "Norway v Japan",
+    "revealTx": "4bC5dE6fG7hI8jK9lM0nO1pQ2rS3tU4vW5xY6zA7bC8dE9fG0hI1jK2lM3nO4pQ5rS6tU7vW8xY9zA0bC1dE2fG3"
+  },
+  {
+    "ts": 1783624560000,
+    "kind": "settle",
+    "matchId": "18209543",
+    "fixture": "Norway v Japan",
+    "settleTx": "5cD6eF7gH8iJ9kL0mN1oP2qR3sT4uV5wX6yZ7aB8cD9eF0gH1iJ2kL3mN4oP5qR6sT7uV8wX9yZ0aB1cD2eF3gH4",
+    "brierBps": 1156
+  },
+  {
+    "ts": 1783531800000,
+    "kind": "commit",
+    "matchId": "18209540",
+    "fixture": "England v Portugal",
+    "outcome": 2,
+    "driftPct": 5.18,
+    "confidenceBps": 6550,
+    "hash": "e8a1f3c5d7b9024680ac2e4f6b8d0135792468ace0f1d3b5a7c9e2f4d6b8a0c1",
+    "nonce": "1f8e7d6c5b4a3928170f6e5d4c3b2a190807f6e5d4c3b2a1908f7e6d5c4b3a20",
+    "prediction": { "outcome": 2, "confidence_bps": 6550 },
+    "commitTx": "6dE7fG8hI9jK0lM1nO2pQ3rS4tU5vW6xY7zA8bC9dE0fG1hI2jK3lM4nO5pQ6rS7tU8vW9xY0zA1bC2dE3fG4hI5"
+  },
+  {
+    "ts": 1783538100000,
+    "kind": "reveal",
+    "matchId": "18209540",
+    "fixture": "England v Portugal",
+    "revealTx": "7eF8gH9iJ0kL1mN2oP3qR4sT5uV6wX7yZ8aB9cD0eF1gH2iJ3kL4mN5oP6qR7sT8uV9wX0yZ1aB2cD3eF4gH5iJ6"
+  },
+  {
+    "ts": 1783538160000,
+    "kind": "settle",
+    "matchId": "18209540",
+    "fixture": "England v Portugal",
+    "settleTx": "8fG9hI0jK1lM2nO3pQ4rS5tU6vW7xY8zA9bC0dE1fG2hI3jK4lM5nO6pQ7rS8tU9vW0xY1zA2bC3dE4fG5hI6jK7",
+    "brierBps": 1190
+  },
+  {
+    "ts": 1783445400000,
+    "kind": "commit",
+    "matchId": "18209537",
+    "fixture": "Argentina v Mexico",
+    "outcome": 1,
+    "driftPct": 5.02,
+    "confidenceBps": 6500,
+    "hash": "a0b2c4d6e8f13579bdf02468ace13579bdf02468ace13579bdf02468ace13579",
+    "nonce": "9a8b7c6d5e4f30219a8b7c6d5e4f30219a8b7c6d5e4f30219a8b7c6d5e4f3021",
+    "prediction": { "outcome": 1, "confidence_bps": 6500 },
+    "commitTx": "9gH0iJ1kL2mN3oP4qR5sT6uV7wX8yZ9aB0cD1eF2gH3iJ4kL5mN6oP7qR8sT9uV0wX1yZ2aB3cD4eF5gH6iJ7kL8"
+  },
+  {
+    "ts": 1783451700000,
+    "kind": "reveal",
+    "matchId": "18209537",
+    "fixture": "Argentina v Mexico",
+    "revealTx": "0hI1jK2lM3nO4pQ5rS6tU7vW8xY9zA0bC1dE2fG3hI4jK5lM6nO7pQ8rS9tU0vW1xY2zA3bC4dE5fG6hI7jK8lM9"
+  },
+  {
+    "ts": 1783451760000,
+    "kind": "settle",
+    "matchId": "18209537",
+    "fixture": "Argentina v Mexico",
+    "settleTx": "1iJ2kL3mN4oP5qR6sT7uV8wX9yZ0aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0",
+    "brierBps": 3904
+  }
+]

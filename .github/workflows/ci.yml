@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  node:
+    name: Typecheck, test, build (mcp + app)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install workspaces
+        run: npm ci
+
+      - name: Typecheck mcp
+        run: npx tsc --noEmit
+        working-directory: mcp
+
+      - name: Typecheck app
+        run: npx tsc --noEmit
+        working-directory: app
+
+      - name: Unit tests (deterministic signal math, integrity gate, prediction hashing)
+        run: npx vitest run
+        working-directory: mcp
+
+      - name: Build dashboard
+        run: npx vite build
+        working-directory: app
+
+  program:
+    name: Cargo check (Anchor program)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: program
+
+      # Full SBF/anchor builds need the Solana toolchain (slow, flaky in CI);
+      # cargo check catches type/logic errors in the program source cheaply.
+      - name: cargo check
+        run: cargo check --workspace
+        working-directory: program
