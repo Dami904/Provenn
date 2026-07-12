@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { ProbChart } from "../components/ProbChart";
 import { Ticker } from "../components/Ticker";
 import { explorerTx, meanBrier, shortHash, type DashboardState } from "../lib/data";
+import { callResult, phasePlain, useViewMode, verdict, type ViewMode } from "../lib/plain";
 import { onLinkClick } from "../lib/router";
 import { OUTCOME_LABELS, type AgentInfo, type LedgerRow, type Phase } from "../lib/types";
+import { gotoAgent, ModeToggle } from "./AgentProfile";
 
 function CopyChip({ value, display }: { value: string; display?: string }) {
   const [copied, setCopied] = useState(false);
@@ -24,7 +26,11 @@ function CopyChip({ value, display }: { value: string; display?: string }) {
   );
 }
 
-function PhaseBadge({ phase }: { phase: Phase }) {
+function PhaseBadge({ phase, mode }: { phase: Phase; mode: ViewMode }) {
+  if (mode === "simple") {
+    const { label, tone } = phasePlain(phase);
+    return <span className={`badge ${tone === "loss" ? "loss" : tone === "settled" ? "settled" : tone === "committed" ? "committed" : ""}`}>{label}</span>;
+  }
   if (phase === "unrevealed-loss") return <span className="badge loss">UNREVEALED — SCORED AS LOSS</span>;
   if (phase === "settled") return <span className="badge settled">SETTLED</span>;
   if (phase === "revealed") return <span className="badge">REVEALED</span>;
@@ -117,12 +123,14 @@ function matchesFilter(row: LedgerRow, f: Filter): boolean {
 
 export function Dashboard({ state }: { state: DashboardState }) {
   const { rows, watch, agent, agents, updatedAt, demo, connected } = state;
+  const [mode, toggleMode] = useViewMode();
   const [filter, setFilter] = useState<Filter>("all");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [chartMatch, setChartMatch] = useState<string | null>(null);
 
   const visible = useMemo(() => rows.filter((r) => matchesFilter(r, filter)), [rows, filter]);
   const chartCard = watch.find((w) => w.matchId === chartMatch);
+  const v = verdict(agent);
 
   return (
     <div className="wrap page">
@@ -135,19 +143,39 @@ export function Dashboard({ state }: { state: DashboardState }) {
         </h2>
         <div className="agent-id">
           {agent?.name && <span>{agent.name}</span>}
-          {agent?.pubkey && <CopyChip value={agent.pubkey} />}
-          {agent?.registeredSlot !== undefined && <span>registered @ slot {agent.registeredSlot}</span>}
+          {mode === "technical" && agent?.pubkey && <CopyChip value={agent.pubkey} />}
+          {mode === "technical" && agent?.registeredSlot !== undefined && (
+            <span>registered @ slot {agent.registeredSlot}</span>
+          )}
           {agent && (
             <span>
-              {agent.totalCommits ?? 0} commits · {agent.revealed ?? 0} revealed
+              {agent.totalCommits ?? 0} predictions · {agent.revealed ?? 0} opened
             </span>
           )}
         </div>
-        <div className="brier">
-          <div className="value mono">{meanBrier(agent)}</div>
-          <div className="label">mean Brier — lower is better</div>
+        <div className={`brier tone-${v.tone}`}>
+          {mode === "simple" ? (
+            <>
+              <div className={`value verdict tone-${v.tone}`}>{v.label}</div>
+              <div className="label">{v.blurb}</div>
+            </>
+          ) : (
+            <>
+              <div className="value mono">{meanBrier(agent)}</div>
+              <div className="label">mean Brier — lower is better</div>
+            </>
+          )}
         </div>
+        <ModeToggle mode={mode} toggleMode={toggleMode} />
       </div>
+
+      {mode === "simple" && (
+        <p className="what-strip">
+          <strong>What you're looking at:</strong> an AI agent that predicts World Cup results, with
+          every call locked onto the blockchain before kickoff so it can't be faked. Green means a
+          good call; a hidden call is counted as a loss. Flip to <em>Technical</em> for the raw proof.
+        </p>
+      )}
 
       <Ticker watch={watch} />
 
@@ -210,7 +238,7 @@ export function Dashboard({ state }: { state: DashboardState }) {
       </section>
 
       <section className="rise" style={{ "--i": 1 } as React.CSSProperties}>
-        <h2 className="section-title">Commit ledger</h2>
+        <h2 className="section-title">{mode === "simple" ? "Its predictions" : "Commit ledger"}</h2>
         <div className="tabs" role="tablist">
           {(["all", "open", "settled"] as const).map((f) => (
             <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
@@ -220,21 +248,31 @@ export function Dashboard({ state }: { state: DashboardState }) {
         </div>
         {visible.length === 0 ? (
           <div className="empty">
-            No commitments yet. Every signal lands here before the match ends — or scores as a loss.
+            No predictions yet. Every call lands here before the match ends — or scores as a loss.
           </div>
         ) : (
           <div className="ledger-scroll">
             <table className="ledger">
               <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Fixture</th>
-                  <th>Signal</th>
-                  <th>Confidence</th>
-                  <th>Phase</th>
-                  <th>Proof</th>
-                  <th>Brier</th>
-                </tr>
+                {mode === "simple" ? (
+                  <tr>
+                    <th>Fixture</th>
+                    <th>Pick</th>
+                    <th>Confidence</th>
+                    <th>Status</th>
+                    <th>Result</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th>Time</th>
+                    <th>Fixture</th>
+                    <th>Signal</th>
+                    <th>Confidence</th>
+                    <th>Phase</th>
+                    <th>Proof</th>
+                    <th>Brier</th>
+                  </tr>
+                )}
               </thead>
               <tbody key={filter}>
                 {visible.map((row, i) => (
@@ -242,6 +280,7 @@ export function Dashboard({ state }: { state: DashboardState }) {
                     key={row.matchId}
                     row={row}
                     index={i}
+                    mode={mode}
                     open={openRow === row.matchId}
                     onToggle={() => setOpenRow(openRow === row.matchId ? null : row.matchId)}
                   />
@@ -254,13 +293,13 @@ export function Dashboard({ state }: { state: DashboardState }) {
 
       <section className="rise" style={{ "--i": 2 } as React.CSSProperties}>
         <h2 className="section-title">Leaderboard</h2>
-        <Leaderboard agents={agents.length ? agents : agent ? [agent] : []} self={agent?.pubkey} />
+        <Leaderboard agents={agents.length ? agents : agent ? [agent] : []} self={agent?.pubkey} mode={mode} />
       </section>
     </div>
   );
 }
 
-function Leaderboard({ agents, self }: { agents: AgentInfo[]; self?: string }) {
+function Leaderboard({ agents, self, mode }: { agents: AgentInfo[]; self?: string; mode: ViewMode }) {
   const ranked = useMemo(
     () =>
       [...agents].sort((a, b) => {
@@ -279,40 +318,70 @@ function Leaderboard({ agents, self }: { agents: AgentInfo[]; self?: string }) {
       <div className="ledger-scroll">
         <table className="ledger compact">
           <thead>
-            <tr>
-              <th>#</th>
-              <th>Agent</th>
-              <th>Commits</th>
-              <th>Revealed</th>
-              <th>Mean Brier</th>
-            </tr>
+            {mode === "simple" ? (
+              <tr>
+                <th>#</th>
+                <th>Agent</th>
+                <th>Predictions</th>
+                <th>Record</th>
+              </tr>
+            ) : (
+              <tr>
+                <th>#</th>
+                <th>Agent</th>
+                <th>Commits</th>
+                <th>Revealed</th>
+                <th>Mean Brier</th>
+              </tr>
+            )}
           </thead>
           <tbody>
-            {ranked.map((a, i) => (
-              <tr
-                key={a.pubkey ?? i}
-                className={`rise${i === 0 ? " lead" : ""}${self && a.pubkey === self ? " self" : ""}`}
-                style={{ "--i": i } as React.CSSProperties}
-              >
-                <td className="mono">{i === 0 ? <span className="rank-one">1</span> : i + 1}</td>
-                <td>
-                  {a.name ?? "agent"} {a.pubkey && <CopyChip value={a.pubkey} />}
-                  {self && a.pubkey === self && <span className="badge">THIS AGENT</span>}
-                </td>
-                <td className="mono">{a.totalCommits ?? 0}</td>
-                <td className="mono">
-                  {a.totalCommits ? `${Math.round(((a.revealed ?? 0) / a.totalCommits) * 100)}%` : "—"}
-                </td>
-                <td className="mono">{meanBrier(a)}</td>
-              </tr>
-            ))}
+            {ranked.map((a, i) => {
+              const v = verdict(a);
+              return (
+                <tr
+                  key={a.pubkey ?? i}
+                  className={`rise clickable${i === 0 ? " lead" : ""}${self && a.pubkey === self ? " self" : ""}`}
+                  style={{ "--i": i } as React.CSSProperties}
+                  onClick={() => gotoAgent(a)}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") gotoAgent(a);
+                  }}
+                  title="View this agent's full record"
+                >
+                  <td className="mono">{i === 0 ? <span className="rank-one">1</span> : i + 1}</td>
+                  <td>
+                    <span className="agent-name-link">{a.name ?? "agent"}</span>
+                    {mode === "technical" && a.pubkey && <CopyChip value={a.pubkey} />}
+                    {self && a.pubkey === self && <span className="badge">THIS AGENT</span>}
+                  </td>
+                  {mode === "simple" ? (
+                    <>
+                      <td className="mono">{a.totalCommits ?? 0}</td>
+                      <td>
+                        <span className={`verdict-pill tone-${v.tone}`}>{v.label}</span>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="mono">{a.totalCommits ?? 0}</td>
+                      <td className="mono">
+                        {a.totalCommits ? `${Math.round(((a.revealed ?? 0) / a.totalCommits) * 100)}%` : "—"}
+                      </td>
+                      <td className="mono">{meanBrier(a)}</td>
+                    </>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <p className="footnote">
-        Ranked by mean Brier over each agent's complete on-chain record — unrevealed commits score the
-        maximum 1.000 loss, so hiding a bad call is worse than revealing it. Recompute any score yourself
-        from the raw accounts.
+        {mode === "simple"
+          ? "Best record first. Tap any agent to see its full history. An agent that hides a prediction is scored as if it lost — so what you see here is the honest picture."
+          : "Ranked by mean Brier over each agent's complete on-chain record — unrevealed commits score the maximum 1.000 loss, so hiding a bad call is worse than revealing it. Recompute any score yourself from the raw accounts."}
       </p>
     </>
   );
@@ -321,29 +390,55 @@ function Leaderboard({ agents, self }: { agents: AgentInfo[]; self?: string }) {
 function LedgerRowView({
   row,
   index,
+  mode,
   open,
   onToggle,
 }: {
   row: LedgerRow;
   index: number;
+  mode: ViewMode;
   open: boolean;
   onToggle: () => void;
 }) {
+  const rowProps = {
+    className: "row rise",
+    style: { "--i": index } as React.CSSProperties,
+    onClick: onToggle,
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onToggle();
+      }
+    },
+    "aria-expanded": open,
+  };
+
+  if (mode === "simple") {
+    const res = callResult(row.brierBps, row.phase);
+    return (
+      <>
+        <tr {...rowProps}>
+          <td>{row.fixture}</td>
+          <td>{row.outcome !== undefined ? OUTCOME_LABELS[row.outcome] : "—"}</td>
+          <td className="mono">
+            {row.confidenceBps !== undefined ? `${(row.confidenceBps / 100).toFixed(0)}% sure` : "—"}
+          </td>
+          <td>
+            <PhaseBadge phase={row.phase} mode={mode} />
+          </td>
+          <td>
+            <span className={`result-pill tone-${res.tone}`}>{res.label}</span>
+          </td>
+        </tr>
+        {open && <RowDetail row={row} />}
+      </>
+    );
+  }
+
   return (
     <>
-      <tr
-        className="row rise"
-        style={{ "--i": index } as React.CSSProperties}
-        onClick={onToggle}
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
-        aria-expanded={open}
-      >
+      <tr {...rowProps}>
         <td className="mono">{row.time ?? "—"}</td>
         <td>{row.fixture}</td>
         <td>
@@ -360,7 +455,7 @@ function LedgerRowView({
           {row.confidenceBps !== undefined ? `${(row.confidenceBps / 100).toFixed(1)}%` : "—"}
         </td>
         <td>
-          <PhaseBadge phase={row.phase} />
+          <PhaseBadge phase={row.phase} mode={mode} />
         </td>
         <td>
           {row.hash && <CopyChip value={row.hash} />} <TxLink sig={row.commitTx} label="commit" />{" "}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Ticker } from "../components/Ticker";
-import { meanBrier, type DashboardState } from "../lib/data";
+import { type DashboardState } from "../lib/data";
+import { verdict } from "../lib/plain";
 import { onLinkClick } from "../lib/router";
 
 /** Count-up for headline numbers; renders instantly under reduced motion. */
@@ -37,6 +38,7 @@ function Stat({ value, label, decimals = 0 }: { value: number; label: string; de
 export function Landing({ state }: { state: DashboardState }) {
   const { agent, watch } = state;
   const revealedPct = agent?.totalCommits ? ((agent.revealed ?? 0) / agent.totalCommits) * 100 : 0;
+  const v = verdict(agent);
 
   return (
     <div className="wrap page">
@@ -67,20 +69,20 @@ export function Landing({ state }: { state: DashboardState }) {
           PROVENN
         </h1>
         <p className="tagline rise" style={{ "--i": 2 } as React.CSSProperties}>
-          Trading agents whose track records can't be faked.
+          Know which AI traders you can actually trust.
         </p>
         <p className="lede rise" style={{ "--i": 3 } as React.CSSProperties}>
-          Every prediction is hash-committed to Solana <em>before</em> the outcome exists and must be
-          revealed by settlement — an unrevealed commit automatically scores as a maximum loss. No
-          deleted calls, no cherry-picking, no rewritten history. The agent trades live World Cup
-          odds; anyone can recompute its record from the chain.
+          AI agents love to brag about their wins and quietly forget their losses. Provenn makes that
+          impossible: every prediction is locked onto the blockchain <em>before</em> the match, and the
+          agent has to own up to it afterward — a call it hides is counted as its worst possible result.
+          So the track record you see is the real one. Built on live World Cup odds.
         </p>
         <div className="cta-row rise" style={{ "--i": 4 } as React.CSSProperties}>
           <a href="/dashboard" onClick={onLinkClick} className="cta">
-            Open the dashboard →
+            See the live leaderboard →
           </a>
           <a href="/dashboard?demo" className="cta secondary">
-            View demo data
+            View a sample
           </a>
         </div>
       </header>
@@ -92,24 +94,28 @@ export function Landing({ state }: { state: DashboardState }) {
       <section className="rise" style={{ "--i": 6 } as React.CSSProperties}>
         <ol className="steps">
           <li>
-            <b>Commit</b> — a deterministic signal fires on live odds drift; its hash lands on-chain
-            before the match decides anything.
+            <b>Lock it in</b> — before kickoff, the agent seals its prediction onto the blockchain. It
+            can't be changed or backdated later.
           </li>
           <li>
-            <b>Reveal</b> — after the match, the plaintext prediction is published and verified
-            against the hash.
+            <b>Own up to it</b> — after the match, the sealed prediction is opened and checked. Go
+            quiet to dodge a bad call? It's counted as a loss.
           </li>
           <li>
-            <b>Score</b> — outcomes update an on-chain Brier score. Silence counts as a loss.
+            <b>Get scored</b> — the real result grades every call, and it all adds up to a public
+            record anyone can re-check against the chain.
           </li>
         </ol>
       </section>
 
       <section className="stats-strip rise" style={{ "--i": 7 } as React.CSSProperties}>
-        <Stat value={agent?.totalCommits ?? 0} label="commits on-chain" />
-        <Stat value={revealedPct} label="% revealed" />
-        <Stat value={agent ? Number(meanBrier(agent)) || 0 : 0} label="mean Brier (lower is better)" decimals={3} />
-        <Stat value={watch.length} label="fixtures watched live" />
+        <Stat value={agent?.totalCommits ?? 0} label="predictions on-chain" />
+        <Stat value={revealedPct} label="% owned up to" />
+        <div className="stat">
+          <div className={`stat-value verdict tone-${v.tone}`}>{v.label}</div>
+          <div className="stat-label">overall record</div>
+        </div>
+        <Stat value={watch.length} label="matches watched live" />
       </section>
 
       <footer className="landing-foot rise" style={{ "--i": 8 } as React.CSSProperties}>

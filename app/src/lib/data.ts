@@ -33,21 +33,36 @@ export interface DashboardState {
   watch: WatchCard[];
   agent: AgentInfo | null;
   agents: AgentInfo[];
+  /** Raw on-chain commit ledger (every agent) — powers per-agent profiles. */
+  commits: ChainCommit[];
   updatedAt: Date | null;
   demo: boolean;
   connected: boolean;
 }
 
+// Demo values are tuned to show the full verdict range (Sharp / Solid / Fair)
+// so the sample view demonstrates what a non-developer would read.
 const DEMO_AGENTS: AgentInfo[] = [
   {
     name: "provenn-wc-agent",
     pubkey: "Cr4NpDSDCxdry4zjq879iD21k5nLJKuUBt11LcadDpWB",
-    totalCommits: 4,
-    revealed: 3,
-    brierBps: 16250,
+    totalCommits: 6,
+    revealed: 6,
+    brierBps: 480, // mean 0.080 -> Sharp
   },
-  { name: "steamchaser", pubkey: "9xQeWvG816bUx9EPjHmaT7wYfbYcNmp4qBB1EWCkVh6d", totalCommits: 7, revealed: 7, brierBps: 41300 },
-  { name: "closing-line-carl", pubkey: "4Nd1mYbTgQpXzW8kFhLrJvC2sD5eA7uP6qRnB3tKmZa9", totalCommits: 2, revealed: 1, brierBps: 14100 },
+  { name: "steamchaser", pubkey: "9xQeWvG816bUx9EPjHmaT7wYfbYcNmp4qBB1EWCkVh6d", totalCommits: 8, revealed: 7, brierBps: 1360 }, // 0.170 -> Solid
+  { name: "closing-line-carl", pubkey: "4Nd1mYbTgQpXzW8kFhLrJvC2sD5eA7uP6qRnB3tKmZa9", totalCommits: 5, revealed: 4, brierBps: 1450 }, // 0.290 -> Fair
+];
+
+// A handful of demo calls for the leader, so a clicked profile in the sample
+// view shows a real per-agent history instead of an empty state.
+const LEADER_PUBKEY = "Cr4NpDSDCxdry4zjq879iD21k5nLJKuUBt11LcadDpWB";
+const DEMO_COMMITS: ChainCommit[] = [
+  { matchId: "17588341", agent: LEADER_PUBKEY, hash: "b71c9a4e0f2d8837a1", slot: 475600120, ts: Date.now() - 3 * 3600_000, revealed: true, settled: true, outcome: 0, confidenceBps: 6600, brierBps: 1156 },
+  { matchId: "17588338", agent: LEADER_PUBKEY, hash: "3f0a1d92c4e75b60aa", slot: 475598004, ts: Date.now() - 26 * 3600_000, revealed: true, settled: true, outcome: 2, confidenceBps: 5800, brierBps: 1764 },
+  { matchId: "17588332", agent: LEADER_PUBKEY, hash: "9c2e7740ab13f5d8e1", slot: 475590210, ts: Date.now() - 50 * 3600_000, revealed: true, settled: true, outcome: 1, confidenceBps: 4200, brierBps: 3364 },
+  { matchId: "17588327", agent: LEADER_PUBKEY, hash: "1a6b33c9df08e24270", slot: 475581999, ts: Date.now() - 74 * 3600_000, revealed: true, settled: true, outcome: 0, confidenceBps: 7100, brierBps: 841 },
+  { matchId: "17588319", agent: LEADER_PUBKEY, hash: "e480fa1c25937bd6c0", slot: 475572140, ts: Date.now() - 98 * 3600_000, revealed: false, settled: false, confidenceBps: undefined },
 ];
 
 export function useDashboard(): DashboardState {
@@ -56,6 +71,7 @@ export function useDashboard(): DashboardState {
     watch: [],
     agent: null,
     agents: [],
+    commits: [],
     updatedAt: null,
     demo: isDemo(),
     connected: false,
@@ -69,16 +85,16 @@ export function useDashboard(): DashboardState {
       const logUrl = demo ? "/demo-log.json" : `${API_BASE}/api/log`;
       const [events, commits, agents] = await Promise.all([
         fetchJson<LogEvent[]>(logUrl),
-        demo ? Promise.resolve<ChainCommit[] | null>([]) : fetchJson<ChainCommit[]>(`${API_BASE}/api/commits`),
+        demo ? Promise.resolve<ChainCommit[] | null>(DEMO_COMMITS) : fetchJson<ChainCommit[]>(`${API_BASE}/api/commits`),
         demo ? Promise.resolve<AgentInfo[] | null>(DEMO_AGENTS) : fetchJson<AgentInfo[]>(`${API_BASE}/api/agents`),
       ]);
       const agent = demo
         ? {
             name: "provenn-wc-agent",
             pubkey: "Cr4NpDSDCxdry4zjq879iD21k5nLJKuUBt11LcadDpWB",
-            totalCommits: 4,
-            revealed: 3,
-            brierBps: 16250,
+            totalCommits: 6,
+            revealed: 6,
+            brierBps: 480,
             registeredSlot: 475514081,
           }
         : await fetchJson<AgentInfo>(`${API_BASE}/api/agent`);
@@ -92,6 +108,7 @@ export function useDashboard(): DashboardState {
           watch,
           agent,
           agents: agents ?? [],
+          commits: commits ?? [],
           updatedAt: new Date(),
           demo,
           connected: true,
@@ -144,6 +161,10 @@ export function shortHash(h?: string, head = 8, tail = 6): string {
 
 export function explorerTx(sig: string): string {
   return `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
+}
+
+export function explorerAddr(address: string): string {
+  return `https://explorer.solana.com/address/${address}?cluster=devnet`;
 }
 
 export function meanBrier(agent: AgentInfo | null): string {
