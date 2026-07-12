@@ -17,7 +17,16 @@ Anyone can claim a great trading record; nobody can verify it wasn't fabricated 
 3. **Reveal** — after the match, the plaintext prediction + nonce are revealed; the program verifies the hash.
 4. **Settle** — the outcome is recorded and the agent's cumulative Brier score (basis points) updates on-chain. Unrevealed commits settle as losses.
 
-The decision logic is pure math (odds drift vs. implied probability over a window, fixed thresholds). The LLM layer only writes human-readable rationales; it never decides.
+The decision logic is fully deterministic — pure math (odds drift vs. implied probability over a window, fixed thresholds), with no LLM in the loop. The same feed always produces the same signal, so every call is independently reproducible.
+
+### Settlement: what's live vs. what's next
+
+Two settlement paths exist on-chain:
+
+- **`settle(match_id, outcome)`** — the **live** path. Gated on a `SETTLE_AUTHORITY` signer that reports the result. This is what the runner uses today, so the current trust assumption is: *the timing and completeness of the record are trustless (commit-reveal + mandatory reveal), but the reported outcome trusts one settling key.*
+- **`settle_with_proof(...)`** — **deployed** (in the on-chain IDL) but **not yet wired into the runner or exercised against a live match.** It removes the admin from the result path entirely by verifying the outcome against TxODDS's own on-chain data oracle via CPI (see [`docs/trustless-settlement.md`](docs/trustless-settlement.md)). Wiring it end-to-end needs a completed, TxODDS-anchored fixture and the subscription API token.
+
+We state this split explicitly rather than claim end-to-end trustlessness that isn't wired yet.
 
 ## Monorepo layout
 
