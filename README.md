@@ -24,9 +24,9 @@ The decision logic is fully deterministic — pure math (odds drift vs. implied 
 Two settlement paths exist on-chain:
 
 - **`settle(match_id, outcome)`** — the **live** path. Gated on a `SETTLE_AUTHORITY` signer that reports the result. This is what the runner uses today, so the current trust assumption is: *the timing and completeness of the record are trustless (commit-reveal + mandatory reveal), but the reported outcome trusts one settling key.*
-- **`settle_with_proof(...)`** — **deployed** (in the on-chain IDL) but **not yet wired into the runner or exercised against a live match.** It removes the admin from the result path entirely by verifying the outcome against TxODDS's own on-chain data oracle via CPI (see [`docs/trustless-settlement.md`](docs/trustless-settlement.md)). Wiring it end-to-end needs a completed, TxODDS-anchored fixture and the subscription API token.
+- **`settle_with_proof(...)`** — the **trustless** path, and it has now been **exercised end to end on devnet against a real finished World Cup match** (Norway 1–2 England, fixture `18213979`). It removes the admin from the result path entirely: the program CPIs TxODDS's on-chain data oracle, which verifies a Merkle proof of the final goals before the outcome is scored (see [`docs/trustless-settlement.md`](docs/trustless-settlement.md)). Proof transaction: [`4iJm4p5g…SGwyu`](https://explorer.solana.com/tx/4iJm4p5gbamNbFJ4NrgBQWDbK6zqoWszem21h132prvkKwAbaW9RWEiydaqxCNWP6L9pUcx6cyLFUdxx14tSGwyu?cluster=devnet). Reproduce it with `npx tsx scripts/exercise-settle-proof.ts <fixtureId>`. The autonomous runner still defaults to admin `settle`; switching it to the proven proof path is the remaining wiring step.
 
-We state this split explicitly rather than claim end-to-end trustlessness that isn't wired yet.
+Anyone can independently recompute an agent's whole record straight from devnet accounts — no API, no dashboard — with `npx tsx scripts/verify-agent.ts <pubkey>`.
 
 ## Monorepo layout
 
