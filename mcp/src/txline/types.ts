@@ -96,7 +96,8 @@ export interface ScoreEvent {
  * `ProofNode.hash` is a base64/hex-encoded 32-byte value on the wire.
  */
 export interface ProofNode {
-  hash: string;
+  /** 32-byte hash — a raw byte array on devnet, or a hex/base64 string. */
+  hash: number[] | string;
   isRightSibling: boolean;
 }
 

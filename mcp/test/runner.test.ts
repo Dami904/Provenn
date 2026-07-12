@@ -64,7 +64,7 @@ function finalScore(p1: number, p2: number): ScoreEvent {
     Ts: T0 + 7_200_000,
     ConnectionId: 1,
     Seq: 99,
-    ScoreSoccer: { Participant1: p1, Participant2: p2 },
+    Stats: { "1": p1, "2": p2 },
   };
 }
 

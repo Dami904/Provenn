@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import anchorPkg from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { ComputeBudgetProgram, Connection, Keypair, PublicKey } from "@solana/web3.js";
 import type { Prediction } from "../agent/prediction.js";
 
 // @coral-xyz/anchor is CJS; grab the pieces off the default export so this
@@ -24,12 +24,19 @@ export const DEVNET_RPC = "https://api.devnet.solana.com";
 
 /** A TxODDS Merkle proof node as returned by /api/scores/stat-validation. */
 export interface ProofNodeWire {
-  hash: string;
+  /** 32-byte hash — a raw byte array on devnet, or a hex/base64 string. */
+  hash: number[] | string;
   isRightSibling: boolean;
 }
 
-/** Decode a wire proof hash (base64 or hex) to exactly 32 bytes. */
-function decode32(hash: string): number[] {
+/** Decode a wire hash to exactly 32 bytes (accepts a byte array, hex, or base64). */
+function decode32(hash: number[] | string): number[] {
+  if (Array.isArray(hash)) {
+    if (hash.length !== 32) {
+      throw new Error(`proof hash byte array is ${hash.length} bytes, expected 32`);
+    }
+    return hash;
+  }
   const isHex = /^[0-9a-fA-F]{64}$/.test(hash);
   const buf = isHex ? Buffer.from(hash, "hex") : Buffer.from(hash, "base64");
   if (buf.length !== 32) {
@@ -262,6 +269,8 @@ export class ProvennChainClient {
         txoracleProgram: TXORACLE_PROGRAM_ID,
         payer: this.wallet.publicKey,
       })
+      // The CPI recomputes a Merkle path inside validate_stat_v2; give it headroom.
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
       .rpc();
   }
 

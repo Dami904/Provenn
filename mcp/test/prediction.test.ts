@@ -84,16 +84,20 @@ function finalScore(p1: number, p2: number, p1IsHome: boolean): ScoreEvent {
     Ts: 0,
     ConnectionId: 0,
     Seq: 5,
-    ScoreSoccer: { Participant1: p1, Participant2: p2 },
+    // Real TxLINE shape: goals live in the flat Stats map, key "1" = P1 goals,
+    // "2" = P2 goals (the same soccer stat keys settle_with_proof pins).
+    Stats: { "1": p1, "2": p2 },
   };
 }
 
 describe("outcomeFromScore", () => {
-  it("returns 0 when the home side wins (P1 is home)", () => {
+  // Outcome is P1/P2-relative (outcome 0 = P1 wins, 2 = P2 wins), matching the
+  // odds detector's part1/part2 indexing — independent of Participant1IsHome.
+  it("returns 0 when Participant1 wins", () => {
     expect(outcomeFromScore([finalScore(2, 1, true)])).toBe(0);
   });
 
-  it("returns 2 when the away side wins (P1 is home)", () => {
+  it("returns 2 when Participant2 wins", () => {
     expect(outcomeFromScore([finalScore(0, 3, true)])).toBe(2);
   });
 
@@ -101,9 +105,16 @@ describe("outcomeFromScore", () => {
     expect(outcomeFromScore([finalScore(1, 1, true)])).toBe(1);
   });
 
-  it("respects Participant1IsHome=false (P1 winning means AWAY win)", () => {
-    expect(outcomeFromScore([finalScore(2, 0, false)])).toBe(2);
-    expect(outcomeFromScore([finalScore(0, 2, false)])).toBe(0);
+  it("is P1/P2-relative, not flipped by Participant1IsHome", () => {
+    // P1 outscores P2 -> outcome 0 regardless of which side is nominally home.
+    expect(outcomeFromScore([finalScore(2, 0, false)])).toBe(0);
+    expect(outcomeFromScore([finalScore(0, 2, false)])).toBe(2);
+  });
+
+  it("treats a missing goal key as 0 (finished 1-0)", () => {
+    const s = finalScore(1, 0, true);
+    s.Stats = { "1": 1 }; // P2 has no goal key
+    expect(outcomeFromScore([s])).toBe(0);
   });
 
   it("returns undefined when there is no game_finalised event", () => {
@@ -112,9 +123,9 @@ describe("outcomeFromScore", () => {
     expect(outcomeFromScore([live])).toBeUndefined();
   });
 
-  it("returns undefined when the final event carries no score", () => {
+  it("returns undefined when the final event carries no score at all", () => {
     const s = finalScore(1, 0, true);
-    delete s.ScoreSoccer;
+    delete s.Stats;
     expect(outcomeFromScore([s])).toBeUndefined();
   });
 

@@ -60,22 +60,36 @@ export function outcomeIndex(outcome: Outcome): 0 | 1 | 2 {
 /**
  * Derive the settled 1X2 outcome from a fixture's score events.
  *
- * Settlement record per docs/txline-api-notes.md §2: `Action === "game_finalised"`
- * (statusId=100). The final soccer score lives in ScoreSoccer as
- * Participant1/Participant2 goals; Participant1IsHome maps participants to
- * the home/away slots. Returns undefined until a final score is available.
+ * The settlement record is `Action === "game_finalised"`. Confirmed against
+ * live TxLINE data: the final goals live in the flat `Stats` map under the
+ * documented soccer stat keys `"1"` = Participant1 total goals and `"2"` =
+ * Participant2 total goals (the same keys the on-chain `settle_with_proof`
+ * pins), with a nested `Score.ParticipantN.Total.Goals` as a fallback.
+ *
+ * The outcome is P1/P2-relative to match the rest of the pipeline: the odds
+ * detector and prediction are indexed on `part1`/`part2` (outcome 0 = P1,
+ * 2 = P2), so settlement compares P1 vs P2 goals directly and does NOT flip on
+ * `Participant1IsHome` (which only labels which side is nominally home and is
+ * irrelevant to the 1X2 market). Returns undefined until a final is available.
  */
 export function outcomeFromScore(scores: ScoreEvent[]): 0 | 1 | 2 | undefined {
   const finals = scores.filter((s) => s.Action === "game_finalised");
   if (finals.length === 0) return undefined;
   const final = finals[finals.length - 1];
-  const score = final.ScoreSoccer;
-  if (!score) return undefined;
-  const { Participant1: p1, Participant2: p2 } = score;
+
+  const stats = final.Stats as Record<string, number> | undefined;
+  const nested = final.Score as
+    | { Participant1?: { Total?: { Goals?: number } }; Participant2?: { Total?: { Goals?: number } } }
+    | undefined;
+
+  const g1 = stats?.["1"] ?? nested?.Participant1?.Total?.Goals;
+  const g2 = stats?.["2"] ?? nested?.Participant2?.Total?.Goals;
+  // A finished match with a scoreline present: a missing goal key means 0.
+  if (g1 === undefined && g2 === undefined && !nested && !stats) return undefined;
+  const p1 = g1 ?? 0;
+  const p2 = g2 ?? 0;
   if (p1 === p2) return 1;
-  const p1Won = p1 > p2;
-  const homeWon = final.Participant1IsHome ? p1Won : !p1Won;
-  return homeWon ? 0 : 2;
+  return p1 > p2 ? 0 : 2;
 }
 
 /**
