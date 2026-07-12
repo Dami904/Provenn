@@ -376,6 +376,105 @@
           "type": "u8"
         }
       ]
+    },
+    {
+      "name": "settle_with_proof",
+      "docs": [
+        "Trustless settlement: score a commit against a match result proven by",
+        "TxODDS's on-chain data oracle, with no admin signer.",
+        "",
+        "The caller supplies the TxODDS score-validation `payload` (record +",
+        "Merkle proof, from `/api/scores/stat-validation`) with exactly two",
+        "stats — full-time home goals at index 0, away goals at index 1. This",
+        "program then:",
+        "1. binds the proof to this match (`fixture_id == match_id`) and checks",
+        "the two stat keys/period are the pinned goal stats,",
+        "2. builds — itself — the predicate strategy that is true iff",
+        "`actual_outcome` holds (`home - away >/</== 0`),",
+        "3. CPIs `validate_stat_v2` on the TxODDS oracle, which recomputes the",
+        "Merkle root from the proof, compares it to its own anchored daily",
+        "root PDA, and evaluates the predicate,",
+        "4. requires the returned bool is `true`, then applies the same Brier",
+        "scoring as `settle`.",
+        "",
+        "Because the strategy is built here and the stats are proven against",
+        "TxODDS's root, neither the caller nor any admin can assert a false",
+        "result: a wrong `actual_outcome` makes the predicate false and aborts."
+      ],
+      "discriminator": [
+        37,
+        77,
+        147,
+        139,
+        128,
+        174,
+        33,
+        158
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true
+        },
+        {
+          "name": "commit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "daily_scores_roots",
+          "docs": [
+            "oracle program here, and the oracle re-derives/validates its own PDA",
+            "seeds inside the CPI. Passed read-only."
+          ]
+        },
+        {
+          "name": "txoracle_program",
+          "docs": [
+            "`TXORACLE_PROGRAM_ID` before the CPI."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        },
+        {
+          "name": "actual_outcome",
+          "type": "u8"
+        },
+        {
+          "name": "payload",
+          "type": {
+            "defined": {
+              "name": "StatValidationInput"
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
@@ -456,6 +555,36 @@
       "code": 6009,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6010,
+      "name": "WrongOracleProgram",
+      "msg": "Oracle program account is not the TxODDS txoracle program"
+    },
+    {
+      "code": 6011,
+      "name": "WrongOracleRoot",
+      "msg": "Daily-scores root account is not owned by the TxODDS oracle"
+    },
+    {
+      "code": 6012,
+      "name": "ProofMatchMismatch",
+      "msg": "Proof fixture id does not match this commit's match id"
+    },
+    {
+      "code": 6013,
+      "name": "ProofStatShape",
+      "msg": "Proof must carry exactly the two full-time goal stats (home, away)"
+    },
+    {
+      "code": 6014,
+      "name": "OracleNoReturn",
+      "msg": "TxODDS oracle returned no data from validate_stat_v2"
+    },
+    {
+      "code": 6015,
+      "name": "OutcomeNotProven",
+      "msg": "TxODDS oracle did not prove the asserted outcome"
     }
   ],
   "types": [
@@ -629,6 +758,185 @@
               "Confidence in the pick as basis points of probability (0..=10000)."
             ],
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProofNode",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "is_right_sibling",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ScoreStat",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "key",
+            "type": "u32"
+          },
+          {
+            "name": "value",
+            "type": "i32"
+          },
+          {
+            "name": "period",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ScoresBatchSummary",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fixture_id",
+            "type": "i64"
+          },
+          {
+            "name": "update_stats",
+            "type": {
+              "defined": {
+                "name": "ScoresUpdateStats"
+              }
+            }
+          },
+          {
+            "name": "events_sub_tree_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ScoresUpdateStats",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "update_count",
+            "type": "i32"
+          },
+          {
+            "name": "min_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "max_timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StatLeaf",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "stat",
+            "type": {
+              "defined": {
+                "name": "ScoreStat"
+              }
+            }
+          },
+          {
+            "name": "stat_proof",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ProofNode"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "StatValidationInput",
+      "docs": [
+        "Args #1 to `validate_stat_v2`. The caller assembles this from the TxLINE",
+        "`/api/scores/stat-validation` response."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ts",
+            "type": "i64"
+          },
+          {
+            "name": "fixture_summary",
+            "type": {
+              "defined": {
+                "name": "ScoresBatchSummary"
+              }
+            }
+          },
+          {
+            "name": "fixture_proof",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ProofNode"
+                }
+              }
+            }
+          },
+          {
+            "name": "main_tree_proof",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ProofNode"
+                }
+              }
+            }
+          },
+          {
+            "name": "event_stat_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "stats",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "StatLeaf"
+                }
+              }
+            }
           }
         ]
       }

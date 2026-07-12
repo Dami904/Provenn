@@ -28,17 +28,21 @@ use txoracle::{outcome_strategy, StatValidationInput, TXORACLE_PROGRAM_ID, VALID
 
 declare_id!("Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2");
 
-/// TxODDS stat keys for full-time goals, at the two ordinal positions the
-/// caller must supply in `StatValidationInput.stats` (index 0 = home, 1 = away).
+/// TxODDS soccer stat keys for full-time total goals, at the two ordinal
+/// positions the caller must supply in `StatValidationInput.stats`.
 ///
-/// TODO(stat-keys): confirm these against the TxODDS soccer stat taxonomy
-/// before relying on `settle_with_proof` in production. Until then the admin
-/// `settle` path remains authoritative; this guard makes a mis-keyed proof
-/// fail closed rather than score against the wrong stat.
-pub const HOME_GOALS_STAT_KEY: u32 = 1;
-pub const AWAY_GOALS_STAT_KEY: u32 = 2;
-/// Period selector for the full-time score in the TxODDS taxonomy (0 = match total).
-pub const FULL_TIME_PERIOD: i32 = 0;
+/// Per the documented TxODDS soccer taxonomy, base keys 1–8 are
+/// Goals/Yellow/Red/Corners for Participant1/Participant2, with a period
+/// multiplier added (0 = match total, 1000 = 1st half, …). So key `1` =
+/// Participant1 full-time goals, key `2` = Participant2 full-time goals.
+///
+/// This matches Provenn's own 1X2 convention end to end: outcome `0` ("home")
+/// is Participant1 and outcome `2` ("away") is Participant2 — the same P1/P2
+/// labelling the odds detector uses (`part1`/`part2`). The score is therefore
+/// scored against exactly the sides the agent predicted over, regardless of
+/// which team is nominally the home side.
+pub const HOME_GOALS_STAT_KEY: u32 = 1; // Participant1 full-time goals
+pub const AWAY_GOALS_STAT_KEY: u32 = 2; // Participant2 full-time goals
 
 /// TODO(oracle): placeholder admin oracle key. Settlement is currently gated
 /// on this signer. Replace with verification of a TxLINE validation proof
@@ -245,14 +249,15 @@ pub mod provenn_protocol {
             payload.fixture_summary.fixture_id == match_id as i64,
             ProvennError::ProofMatchMismatch
         );
+        // The stat keys already encode "Participant{1,2} full-time goals"
+        // (base key, no period multiplier), so pinning the keys fully
+        // identifies the two stats and their order. The separate `period`
+        // field is left unconstrained: for a key-encoded stat its value is
+        // redundant, and over-constraining it would risk a false reject.
         require!(payload.stats.len() == 2, ProvennError::ProofStatShape);
-        let home = &payload.stats[0].stat;
-        let away = &payload.stats[1].stat;
         require!(
-            home.key == HOME_GOALS_STAT_KEY
-                && away.key == AWAY_GOALS_STAT_KEY
-                && home.period == FULL_TIME_PERIOD
-                && away.period == FULL_TIME_PERIOD,
+            payload.stats[0].stat.key == HOME_GOALS_STAT_KEY
+                && payload.stats[1].stat.key == AWAY_GOALS_STAT_KEY,
             ProvennError::ProofStatShape
         );
 

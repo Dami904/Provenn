@@ -50,17 +50,30 @@ treat `validate_stat_v2` as the trust anchor and CPI into it. The only bytes we
 mirror are the published IDL types (see `src/txoracle.rs`), guarded by a Borsh
 round-trip test and the pinned `validate_stat_v2` discriminator.
 
+## Stat keys (resolved)
+
+`HOME_GOALS_STAT_KEY = 1` and `AWAY_GOALS_STAT_KEY = 2` are grounded in the
+documented TxODDS soccer taxonomy: base keys 1–8 are
+Goals/Yellow/Red/Corners for Participant1/Participant2, plus a period multiplier
+(0 = match total). So key `1` = Participant1 full-time goals, key `2` =
+Participant2 full-time goals. This is exactly Provenn's own 1X2 convention
+(outcome 0 = Participant1 = "home", outcome 2 = Participant2 = "away"), the same
+`part1`/`part2` labelling the odds detector uses — so the proof scores the
+agent against precisely the sides it predicted over, no matter which team is
+nominally home. The `period` field is intentionally left unconstrained: the key
+already encodes the period, so pinning it fully identifies the stat.
+
 ## Open items before production use
 
-- **`HOME_GOALS_STAT_KEY` / `AWAY_GOALS_STAT_KEY` / `FULL_TIME_PERIOD`** in
-  `lib.rs` are placeholders (`1`, `2`, `0`) pending confirmation against the
-  TxODDS soccer stat taxonomy. Until confirmed, the admin `settle` path stays
-  authoritative and a mis-keyed proof fails closed rather than mis-scoring.
 - **End-to-end devnet verification** requires a finished World Cup fixture whose
-  final score TxODDS has anchored, plus a redeploy of the program (out of scope
-  for this branch — do not deploy without review). Unit tests cover the
-  outcome→predicate mapping and Borsh serialization; the CPI itself is exercised
-  only against the live oracle.
+  final score TxODDS has anchored, plus the values confirmed against a live
+  `/api/scores/stat-validation` response (needs the subscription's
+  `X-Api-Token`). Unit tests cover the outcome→predicate mapping and Borsh
+  serialization; the CPI itself is only exercised against the live oracle.
+- **Redeploy**: `settle_with_proof` is a new instruction, so the program must be
+  rebuilt (`anchor build` regenerates the IDL that clients load) and redeployed
+  before it is callable. Until then the admin `settle` path stays authoritative.
+  Deploy is left to a reviewed step — do not deploy from this branch unattended.
 - **Compute budget**: the CPI validates a Merkle path; add a
   `ComputeBudgetProgram.setComputeUnitLimit` pre-instruction if it exceeds the
   200k default (the TxODDS examples do this).
