@@ -65,7 +65,24 @@ const DEMO_COMMITS: ChainCommit[] = [
   { matchId: "17588319", agent: LEADER_PUBKEY, hash: "e480fa1c25937bd6c0", slot: 475572140, ts: Date.now() - 98 * 3600_000, revealed: false, settled: false, confidenceBps: undefined },
 ];
 
+/**
+ * Track the ?demo flag reactively. The dashboard hook lives above the router
+ * and never unmounts, so it must re-read demo-ness on client-side navigation
+ * (popstate) — otherwise switching demo⇄live without a full reload keeps
+ * serving the old mode's data.
+ */
+function useIsDemo(): boolean {
+  const [demo, setDemo] = useState(isDemo);
+  useEffect(() => {
+    const sync = () => setDemo(isDemo());
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+  return demo;
+}
+
 export function useDashboard(): DashboardState {
+  const demo = useIsDemo();
   const [state, setState] = useState<DashboardState>({
     rows: [],
     watch: [],
@@ -73,13 +90,24 @@ export function useDashboard(): DashboardState {
     agents: [],
     commits: [],
     updatedAt: null,
-    demo: isDemo(),
+    demo,
     connected: false,
   });
   const timer = useRef<ReturnType<typeof setInterval>>(undefined);
 
   useEffect(() => {
-    const demo = isDemo();
+    // Mode just changed (or first mount): wipe the previous mode's data so a
+    // stale demo agent can never masquerade as live while the first fetch runs.
+    setState((s) => ({
+      ...s,
+      rows: [],
+      watch: [],
+      agent: null,
+      agents: [],
+      commits: [],
+      demo,
+      connected: false,
+    }));
 
     async function tick() {
       const logUrl = demo ? "/demo-log.json" : `${API_BASE}/api/log`;
@@ -121,7 +149,7 @@ export function useDashboard(): DashboardState {
     void tick();
     timer.current = setInterval(tick, POLL_MS);
     return () => clearInterval(timer.current);
-  }, []);
+  }, [demo]);
 
   return state;
 }
