@@ -53,6 +53,9 @@ export function Landing({ state }: { state: DashboardState }) {
           >
             Program
           </a>
+          <a href="/guide.html" target="_blank" rel="noreferrer">
+            Guide
+          </a>
           <a href="/dashboard" onClick={onLinkClick}>
             Dashboard
           </a>

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Provenn — What it does & how to test it</title>
+<style>
+  :root {
+    --paper: #faf9f5;
+    --panel: #f1efe7;
+    --ink: #17191c;
+    --ink-soft: #4c4f55;
+    --ink-faint: #7b7e85;
+    --rule: #dedbcf;
+    --verify: #1f7a4f;   /* proven / correct */
+    --signal: #8a6410;   /* odds / caution */
+    --loss: #a83c3c;     /* wrong / auto-loss */
+    --link: #245a9c;     /* home-team chart blue, reused for links */
+    --code-bg: #14161a;
+    --code-ink: #e9e6dc;
+    --code-tok: #86c9a6;
+    --shadow: 0 1px 0 var(--rule), 0 18px 40px -30px rgba(20,22,26,.5);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #14151a;
+      --panel: #1c1e25;
+      --ink: #edeae0;
+      --ink-soft: #b3b6bf;
+      --ink-faint: #7f838d;
+      --rule: #2c2f38;
+      --verify: #56c48c;
+      --signal: #d3a54a;
+      --loss: #e08a80;
+      --link: #7fb0ea;
+      --code-bg: #0d0e12;
+      --code-ink: #e9e6dc;
+      --shadow: 0 1px 0 var(--rule), 0 18px 44px -30px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #faf9f5; --panel: #f1efe7; --ink: #17191c; --ink-soft: #4c4f55;
+    --ink-faint: #7b7e85; --rule: #dedbcf; --verify: #1f7a4f; --signal: #8a6410;
+    --loss: #a83c3c; --link: #245a9c; --code-bg: #14161a; --code-ink: #e9e6dc;
+    --code-tok: #86c9a6;
+  }
+  :root[data-theme="dark"] {
+    --paper: #14151a; --panel: #1c1e25; --ink: #edeae0; --ink-soft: #b3b6bf;
+    --ink-faint: #7f838d; --rule: #2c2f38; --verify: #56c48c; --signal: #d3a54a;
+    --loss: #e08a80; --link: #7fb0ea; --code-bg: #0d0e12; --code-ink: #e9e6dc;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 18px/1.62 ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  .wrap { width: min(100% - 44px, 760px); margin: 0 auto; }
+
+  /* ---- eyebrow / labels ---- */
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 14px;
+  }
+
+  /* ---- hero ---- */
+  header.hero { padding: 72px 0 40px; border-bottom: 1px solid var(--rule); }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    letter-spacing: .04em; color: var(--verify);
+    border: 1px solid color-mix(in srgb, var(--verify) 40%, transparent);
+    border-radius: 999px; padding: 5px 12px; background: color-mix(in srgb, var(--verify) 8%, transparent);
+  }
+  .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--verify); }
+  h1 {
+    font-family: ui-sans-serif, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 800; letter-spacing: -0.025em; line-height: 1.02;
+    font-size: clamp(38px, 7.5vw, 66px); margin: 22px 0 0; text-wrap: balance;
+  }
+  h1 .u { color: var(--verify); }
+  .lede { font-size: clamp(19px, 2.6vw, 23px); color: var(--ink-soft); margin: 20px 0 0; max-width: 40ch; }
+
+  /* ---- sections ---- */
+  section { padding: 48px 0; border-bottom: 1px solid var(--rule); }
+  h2 {
+    font-family: ui-sans-serif, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 750; letter-spacing: -0.015em; font-size: clamp(24px, 4vw, 32px);
+    margin: 0 0 6px; text-wrap: balance;
+  }
+  h3 {
+    font-family: ui-sans-serif, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 700; font-size: 19px; letter-spacing: -0.01em; margin: 30px 0 8px;
+  }
+  p { margin: 0 0 16px; }
+  p.tight { max-width: 62ch; }
+  a { color: var(--link); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  strong { font-weight: 700; }
+
+  /* ---- the loop: numbered sequence ---- */
+  ol.loop { list-style: none; counter-reset: step; margin: 8px 0 0; padding: 0; }
+  ol.loop > li {
+    counter-increment: step; position: relative;
+    padding: 20px 0 20px 62px; border-top: 1px solid var(--rule);
+  }
+  ol.loop > li:first-child { border-top: none; }
+  ol.loop > li::before {
+    content: counter(step, decimal-leading-zero);
+    position: absolute; left: 0; top: 20px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 500;
+    color: var(--paper); background: var(--ink);
+    width: 40px; height: 30px; display: grid; place-items: center; border-radius: 6px;
+    letter-spacing: .02em;
+  }
+  ol.loop > li.warn::before { background: var(--loss); }
+  ol.loop .st { font-family: ui-sans-serif, "Helvetica Neue", Arial, sans-serif; font-weight: 700; font-size: 18px; }
+  ol.loop .st .tag { font-weight: 500; font-size: 12px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; letter-spacing: .04em; margin-left: 8px; }
+  ol.loop p { margin: 6px 0 0; color: var(--ink-soft); font-size: 16.5px; max-width: 58ch; }
+  .arrow { color: var(--verify); font-weight: 700; }
+
+  /* ---- callout ---- */
+  .callout {
+    background: var(--panel); border-left: 3px solid var(--signal);
+    padding: 18px 20px; border-radius: 0 8px 8px 0; margin: 8px 0 0;
+    font-size: 16.5px; color: var(--ink-soft);
+  }
+  .callout.verify { border-left-color: var(--verify); }
+  .callout strong { color: var(--ink); }
+
+  /* ---- code ---- */
+  .code {
+    background: var(--code-bg); color: var(--code-ink);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 14px; line-height: 1.75; border-radius: 10px;
+    padding: 16px 18px; margin: 14px 0 0; overflow-x: auto;
+    box-shadow: var(--shadow);
+  }
+  .code .c { color: #7f8794; }        /* comment */
+  .code .g { color: var(--code-tok); } /* command / good */
+  .code b { color: #e9e6dc; font-weight: 600; }
+  code.inline {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.86em;
+    background: var(--panel); padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--rule); word-break: break-word;
+  }
+
+  /* ---- link grid ---- */
+  .links { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 8px; }
+  .linkcard {
+    display: block; text-decoration: none; color: inherit;
+    border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px;
+    background: var(--panel); transition: transform .15s ease, border-color .15s ease;
+  }
+  .linkcard:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--link) 55%, var(--rule)); }
+  .linkcard .k { font-family: ui-sans-serif, Arial, sans-serif; font-weight: 700; font-size: 15px; margin: 0 0 4px; }
+  .linkcard .v { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--link); word-break: break-all; }
+
+  /* ---- feature table ---- */
+  .tablewrap { overflow-x: auto; margin-top: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15.5px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 500; }
+  td:first-child { font-family: ui-sans-serif, Arial, sans-serif; font-weight: 650; white-space: nowrap; }
+  td .where { color: var(--ink-soft); }
+  .pill { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 11px; padding: 2px 8px; border-radius: 999px; letter-spacing: .02em; }
+  .pill.live { color: var(--verify); background: color-mix(in srgb, var(--verify) 12%, transparent); border: 1px solid color-mix(in srgb, var(--verify) 30%, transparent); }
+  .pill.token { color: var(--signal); background: color-mix(in srgb, var(--signal) 12%, transparent); border: 1px solid color-mix(in srgb, var(--signal) 30%, transparent); }
+
+  ul.plain { margin: 8px 0 0; padding-left: 20px; }
+  ul.plain li { margin: 0 0 8px; color: var(--ink-soft); }
+  ul.plain li strong { color: var(--ink); }
+
+  footer { padding: 40px 0 64px; color: var(--ink-faint); font-size: 14px; font-family: ui-monospace, Menlo, monospace; }
+  footer a { color: var(--ink-soft); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .linkcard { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <span class="badge"><span class="dot"></span> Live on Solana devnet</span>
+    <h1>Track records for AI trading agents that <span class="u">can't be faked</span>.</h1>
+    <p class="lede">Provenn writes an agent's every prediction to the blockchain under rules that make hiding a loss impossible — then scores it against real World Cup results.</p>
+  </header>
+
+  <section>
+    <p class="eyebrow">The problem</p>
+    <h2>Anyone can screenshot a winning trade.</h2>
+    <p class="tight">AI trading agents love to claim a “90% win rate.” But those claims are unverifiable — an operator can screenshot the wins, quietly delete the losses, and backdate a call once the result is already known. There's no way to tell a genuinely good agent from a lucky liar.</p>
+    <p class="tight"><strong>Provenn removes the trust.</strong> Every prediction is committed to a public Solana program before the match, revealed after, and scored automatically. What you see on the leaderboard is a record no one could have doctored.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">How it works · the loop</p>
+    <h2>A sealed-envelope contest with a public scoreboard.</h2>
+    <ol class="loop">
+      <li>
+        <div class="st">Register <span class="tag">on-chain identity</span></div>
+        <p>An agent creates a permanent account (a PDA) that holds its reputation. It can't be swapped out later to escape a bad history.</p>
+      </li>
+      <li>
+        <div class="st">Commit <span class="tag">before kickoff</span></div>
+        <p>The agent submits a <strong>sealed hash</strong> of its prediction — say “home win, 65% confidence.” The prediction stays secret, but the chain timestamps it. <span class="arrow">→</span> It can't be backdated or changed.</p>
+      </li>
+      <li>
+        <div class="st">Reveal <span class="tag">after the match</span></div>
+        <p>The agent opens the envelope. The program re-hashes the revealed prediction and checks it against the sealed commit. <span class="arrow">→</span> It can't reveal anything other than exactly what it committed.</p>
+      </li>
+      <li class="warn">
+        <div class="st">Stay silent? Auto-loss. <span class="tag">the anti-cheat rule</span></div>
+        <p>If an agent never reveals — the classic move to bury a bad call — it's automatically scored as <strong>maximally wrong</strong>. Hiding a loss costs exactly as much as the worst possible prediction, so a rational agent always reveals, win or lose.</p>
+      </li>
+      <li>
+        <div class="st">Settle &amp; score <span class="tag">Brier score</span></div>
+        <p>The real result scores the call with a Brier score — a standard accuracy metric where lower is better. A confident correct call scores great; a confident wrong one scores terribly. It accumulates into the permanent record.</p>
+      </li>
+      <li>
+        <div class="st">Rank <span class="tag">public leaderboard</span></div>
+        <p>Every agent's cumulative accuracy is public and ranked. You're reading a track record that math guarantees is honest.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <p class="eyebrow">Why it holds up</p>
+    <h2>Two design choices that make it credible.</h2>
+    <p class="tight"><strong>The decisions are deterministic math, not an LLM.</strong> Signals come from an odds-drift model with fixed thresholds — the same data always yields the same decision, so every call is reproducible and defensible. A language model only writes the human-readable <em>explanation</em>; it never makes the call.</p>
+    <div class="callout verify"><strong>Trustless settlement.</strong> Instead of an admin declaring the result, the program cryptographically verifies the final score against TxODDS's own on-chain data feed (TxLINE) before scoring. The result the agent is judged against is proven, not asserted.</div>
+    <p class="tight" style="margin-top:16px">And there's no hidden database — the blockchain <em>is</em> the record. That's the entire point: anyone can re-derive the leaderboard straight from the chain.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Test it · Level A</p>
+    <h2>Verify the live product — no install, ~5 minutes.</h2>
+
+    <h3>1 · Open the dashboard</h3>
+    <p class="tight">The landing page explains it; the dashboard shows live on-chain data — watch cards, the commit ledger, and the leaderboard.</p>
+    <div class="links">
+      <a class="linkcard" href="https://provenn-app.vercel.app"><div class="k">Landing page</div><div class="v">provenn-app.vercel.app</div></a>
+      <a class="linkcard" href="https://provenn-app.vercel.app/dashboard"><div class="k">Dashboard · real data</div><div class="v">/dashboard</div></a>
+      <a class="linkcard" href="https://provenn-app.vercel.app/dashboard?demo"><div class="k">Demo view · sample data</div><div class="v">/dashboard?demo</div></a>
+    </div>
+    <div class="callout" style="margin-top:14px">Use the <strong>?demo</strong> view to see the leaderboard ranking, interactive probability charts, and ledger fully populated even when no match is live — ideal for a first look or screenshots.</div>
+
+    <h3>2 · Hit the raw API (prove the UI isn't faking it)</h3>
+    <div class="code mono">
+<span class="c"># the leaderboard: every agent ranked by mean Brier</span>
+<span class="g">curl</span> https://provenn.onrender.com/api/agents
+<span class="c"># the reference agent's on-chain record</span>
+<span class="g">curl</span> https://provenn.onrender.com/api/agent
+<span class="c"># the full public commit ledger</span>
+<span class="g">curl</span> https://provenn.onrender.com/api/commits
+<span class="c"># the runner's live decision log</span>
+<span class="g">curl</span> https://provenn.onrender.com/api/log
+    </div>
+    <p class="tight" style="margin-top:14px"><code class="inline">/api/agents</code> returns <code class="inline">provenn-wc-agent</code> with its commit count and Brier score — the same numbers the dashboard renders.</p>
+
+    <h3>3 · Inspect the program on-chain</h3>
+    <p class="tight">The ultimate source of truth. Open the deployed program on Solana Explorer (devnet) and browse its register / commit / reveal / settle transactions — verifiable by anyone.</p>
+    <a class="linkcard" href="https://explorer.solana.com/address/Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2?cluster=devnet"><div class="k">Program · Solana Explorer (devnet)</div><div class="v">Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2</div></a>
+  </section>
+
+  <section>
+    <p class="eyebrow">Test it · Level B</p>
+    <h2>Run the autonomous agent yourself — ~15 minutes.</h2>
+    <p class="tight"><strong>Prerequisites:</strong> Node 20+, a Solana CLI wallet at <code class="inline">~/.config/solana/id.json</code> with some devnet SOL, and the repo cloned.</p>
+    <div class="code mono">
+<span class="g">git clone</span> https://github.com/Dami904/Provenn <b>&amp;&amp;</b> <span class="g">cd</span> Provenn
+<span class="g">npm install</span>
+
+<span class="c"># 1) Unit tests — deterministic decision core + integrity gate (34 tests)</span>
+<span class="g">npm test</span>
+
+<span class="c"># 2) Replay mode — runs the agent against a REAL captured World Cup</span>
+<span class="c">#    feed. No API token needed. This is what judges use post-tournament.</span>
+<span class="g">cd</span> mcp
+<span class="g">npx tsx</span> scripts/run-agent.ts --replay replay-samples/2026-07-11-live-worldcup.jsonl --speed 60
+
+<span class="c"># 3) Read any agent's on-chain record directly</span>
+<span class="g">npx tsx</span> scripts/agent-status.ts
+
+<span class="c"># 4) Serve the dashboard API locally (same endpoints as the cloud)</span>
+<span class="g">npx tsx</span> scripts/serve-api.ts   <span class="c"># then curl http://localhost:8787/api/agents</span>
+    </div>
+    <div class="callout" style="margin-top:16px"><strong>Note on live mode.</strong> <code class="inline" style="color:inherit">run-agent.ts</code> with no flags (live feed) and <code class="inline" style="color:inherit">smoke.ts</code> (feed connectivity check) need the TxODDS credential <code class="inline" style="color:inherit">TXLINE_API_TOKEN</code> in <code class="inline" style="color:inherit">provenn/.env</code>. That field is currently blank — drop the token in to enable them. <strong>Replay mode and everything in Level A work without it.</strong></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Coverage</p>
+    <h2>Every feature, and where to see it.</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Feature</th><th>Where to see it</th></tr></thead>
+        <tbody>
+          <tr><td>Unfakeable registry</td><td class="where"><span class="pill live">live</span> &nbsp;<code class="inline">/api/agents</code>, dashboard leaderboard</td></tr>
+          <tr><td>Commit → reveal → settle loop</td><td class="where"><span class="pill live">live</span> &nbsp;<code class="inline">/api/commits</code>, Explorer transactions</td></tr>
+          <tr><td>Mandatory-reveal auto-loss</td><td class="where">Replay an unrevealed commit → it scores 10000 bps</td></tr>
+          <tr><td>Deterministic decision engine</td><td class="where"><code class="inline">npm test</code> + runner log (<code class="inline">reason: "max drift X pp"</code>)</td></tr>
+          <tr><td>Data integrity gate</td><td class="where">Tests in <code class="inline">integrity.ts</code>; runner skips on low drift</td></tr>
+          <tr><td>Brier scoring + ranking</td><td class="where"><span class="pill live">live</span> &nbsp;dashboard leaderboard, mean-Brier column</td></tr>
+          <tr><td>Live TxLINE World Cup data</td><td class="where"><span class="pill token">token</span> &nbsp;live mode / captured feed in replay</td></tr>
+          <tr><td>Trustless settlement</td><td class="where"><span class="pill live">live</span> &nbsp;<code class="inline">docs/trustless-settlement.md</code>; <code class="inline">settle_with_proof</code> on-chain</td></tr>
+          <tr><td>Replay mode (judge-testable)</td><td class="where"><code class="inline">run-agent.ts --replay</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tight" style="margin-top:18px"><strong>The one thing not yet demonstrable end-to-end:</strong> a real trustless <code class="inline">settle_with_proof</code> against a finished match — that needs a completed, TxODDS-anchored fixture <em>and</em> the live API token. The semifinals are the moment to run that once.</p>
+  </section>
+
+  <section style="border-bottom:none">
+    <p class="eyebrow">Quick reference</p>
+    <h2>Everything in one place.</h2>
+    <ul class="plain">
+      <li><strong>App:</strong> <a href="https://provenn-app.vercel.app">provenn-app.vercel.app</a> · <a href="https://provenn-app.vercel.app/dashboard">/dashboard</a> · <a href="https://provenn-app.vercel.app/dashboard?demo">/dashboard?demo</a></li>
+      <li><strong>API:</strong> <span class="mono" style="font-size:14px">provenn.onrender.com/api/{agents · agent · commits · log}</span></li>
+      <li><strong>Program (devnet):</strong> <span class="mono" style="font-size:13px; word-break:break-all">Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2</span></li>
+      <li><strong>Repo:</strong> <a href="https://github.com/Dami904/Provenn">github.com/Dami904/Provenn</a></li>
+    </ul>
+  </section>
+
+  <footer>
+    Provenn · open protocol for verifiable AI-agent track records · built on TxODDS TxLINE World Cup data
+  </footer>
+
+</div>
+</body>
+</html>
