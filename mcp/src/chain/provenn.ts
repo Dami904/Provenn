@@ -13,7 +13,33 @@ const { AnchorProvider, BN, Program, Wallet } = anchorPkg;
 /** Program ID of the deployed Provenn protocol (devnet). */
 export const PROVENN_PROGRAM_ID = new PublicKey("Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2");
 
+/** TxODDS on-chain data oracle (devnet) — target of the trustless-settlement CPI. */
+export const TXORACLE_PROGRAM_ID = new PublicKey("6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J");
+
+/** TxODDS full-time goal stat keys, in the order settle_with_proof expects (home, away). */
+export const HOME_GOALS_STAT_KEY = 1;
+export const AWAY_GOALS_STAT_KEY = 2;
+
 export const DEVNET_RPC = "https://api.devnet.solana.com";
+
+/** A TxODDS Merkle proof node as returned by /api/scores/stat-validation. */
+export interface ProofNodeWire {
+  hash: string;
+  isRightSibling: boolean;
+}
+
+/** Decode a wire proof hash (base64 or hex) to exactly 32 bytes. */
+function decode32(hash: string): number[] {
+  const isHex = /^[0-9a-fA-F]{64}$/.test(hash);
+  const buf = isHex ? Buffer.from(hash, "hex") : Buffer.from(hash, "base64");
+  if (buf.length !== 32) {
+    throw new Error(`proof hash did not decode to 32 bytes (got ${buf.length})`);
+  }
+  return Array.from(buf);
+}
+
+const mapProof = (nodes: ProofNodeWire[]) =>
+  nodes.map((n) => ({ hash: decode32(n.hash), isRightSibling: n.isRightSibling }));
 
 const IDL_PATH = fileURLToPath(new URL("../idl/provenn_protocol.json", import.meta.url));
 
@@ -146,6 +172,75 @@ export class ProvennChainClient {
         agent: this.agentPda(),
         commit: this.commitPda(matchId),
         settleAuthority: this.wallet.publicKey,
+      })
+      .rpc();
+  }
+
+  /** Daily-scores root PDA on the TxODDS oracle for the day containing `tsMs`. */
+  txoracleDailyScoresPda(tsMs: number): PublicKey {
+    const epochDay = Math.floor(tsMs / 86_400_000);
+    const epochLe = Buffer.alloc(2);
+    epochLe.writeUInt16LE(epochDay);
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("daily_scores_roots"), epochLe],
+      TXORACLE_PROGRAM_ID,
+    )[0];
+  }
+
+  /**
+   * settle_with_proof(match_id, actual_outcome, payload) — trustless settlement.
+   *
+   * Build `validation` from TxLineClient.getScoreStatValidation(fixtureId, seq,
+   * [HOME_GOALS_STAT_KEY, AWAY_GOALS_STAT_KEY]); this maps it into the program's
+   * StatValidationInput and derives the TxODDS daily-root PDA from the record
+   * timestamp. `actualOutcome` (0/1/2) is the result the caller asserts — the
+   * program only accepts it if the TxODDS oracle proves it.
+   */
+  async settleWithProof(
+    matchId: bigint,
+    actualOutcome: number,
+    validation: {
+      ts: number;
+      summary: { fixtureId: number; updateStats: { updateCount: number; minTimestamp: number; maxTimestamp: number }; eventStatsSubTreeRoot: number[] | string };
+      statsToProve: Array<{ key: number; value: number; period: number }>;
+      statProofs: ProofNodeWire[][];
+      subTreeProof: ProofNodeWire[];
+      mainTreeProof: ProofNodeWire[];
+      eventStatRoot: number[] | string;
+    },
+    authority?: PublicKey,
+  ): Promise<string> {
+    const to32 = (v: number[] | string) =>
+      typeof v === "string" ? decode32(v) : v;
+
+    const payload = {
+      ts: new BN(validation.ts),
+      fixtureSummary: {
+        fixtureId: new BN(validation.summary.fixtureId),
+        updateStats: {
+          updateCount: validation.summary.updateStats.updateCount,
+          minTimestamp: new BN(validation.summary.updateStats.minTimestamp),
+          maxTimestamp: new BN(validation.summary.updateStats.maxTimestamp),
+        },
+        eventsSubTreeRoot: to32(validation.summary.eventStatsSubTreeRoot),
+      },
+      fixtureProof: mapProof(validation.subTreeProof),
+      mainTreeProof: mapProof(validation.mainTreeProof),
+      eventStatRoot: to32(validation.eventStatRoot),
+      stats: validation.statsToProve.map((s, i) => ({
+        stat: { key: s.key, value: s.value, period: s.period },
+        statProof: mapProof(validation.statProofs[i] ?? []),
+      })),
+    };
+
+    const dailyScoresRoots = this.txoracleDailyScoresPda(validation.ts);
+    return this.program.methods
+      .settleWithProof(new BN(matchId.toString()), actualOutcome, payload)
+      .accounts({
+        agent: this.agentPda(authority),
+        commit: this.commitPda(matchId, authority),
+        dailyScoresRoots,
+        txoracleProgram: TXORACLE_PROGRAM_ID,
       })
       .rpc();
   }

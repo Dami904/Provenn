@@ -19,9 +19,26 @@
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hashv;
+use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
+use anchor_lang::solana_program::program::{get_return_data, invoke};
 use anchor_lang::solana_program::pubkey;
 
+mod txoracle;
+use txoracle::{outcome_strategy, StatValidationInput, TXORACLE_PROGRAM_ID, VALIDATE_STAT_V2_DISCM};
+
 declare_id!("Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2");
+
+/// TxODDS stat keys for full-time goals, at the two ordinal positions the
+/// caller must supply in `StatValidationInput.stats` (index 0 = home, 1 = away).
+///
+/// TODO(stat-keys): confirm these against the TxODDS soccer stat taxonomy
+/// before relying on `settle_with_proof` in production. Until then the admin
+/// `settle` path remains authoritative; this guard makes a mis-keyed proof
+/// fail closed rather than score against the wrong stat.
+pub const HOME_GOALS_STAT_KEY: u32 = 1;
+pub const AWAY_GOALS_STAT_KEY: u32 = 2;
+/// Period selector for the full-time score in the TxODDS taxonomy (0 = match total).
+pub const FULL_TIME_PERIOD: i32 = 0;
 
 /// TODO(oracle): placeholder admin oracle key. Settlement is currently gated
 /// on this signer. Replace with verification of a TxLINE validation proof
@@ -179,34 +196,133 @@ pub mod provenn_protocol {
             ProvennError::NotAuthority
         );
 
-        let commit = &mut ctx.accounts.commit;
-        require!(!commit.settled, ProvennError::AlreadySettled);
-
-        let brier_bps: u64 = if !commit.revealed {
-            // Silence is penalized: score as maximally wrong.
-            MAX_BRIER_BPS
-        } else {
-            let p = commit.prediction.confidence_bps as u64;
-            if commit.prediction.outcome == actual_outcome {
-                // (10000 - p)^2 / 10000
-                let miss = MAX_BRIER_BPS - p;
-                miss.checked_mul(miss).ok_or(ProvennError::Overflow)? / MAX_BRIER_BPS
-            } else {
-                // p^2 / 10000
-                p.checked_mul(p).ok_or(ProvennError::Overflow)? / MAX_BRIER_BPS
-            }
-        };
-
-        commit.settled = true;
-        commit.brier_bps = brier_bps;
-
-        let agent = &mut ctx.accounts.agent;
-        agent.cumulative_brier_bps = agent
-            .cumulative_brier_bps
-            .checked_add(brier_bps)
-            .ok_or(ProvennError::Overflow)?;
-        Ok(())
+        apply_settlement(&mut ctx.accounts.commit, &mut ctx.accounts.agent, actual_outcome)
     }
+
+    /// Trustless settlement: score a commit against a match result proven by
+    /// TxODDS's on-chain data oracle, with no admin signer.
+    ///
+    /// The caller supplies the TxODDS score-validation `payload` (record +
+    /// Merkle proof, from `/api/scores/stat-validation`) with exactly two
+    /// stats — full-time home goals at index 0, away goals at index 1. This
+    /// program then:
+    ///   1. binds the proof to this match (`fixture_id == match_id`) and checks
+    ///      the two stat keys/period are the pinned goal stats,
+    ///   2. builds — itself — the predicate strategy that is true iff
+    ///      `actual_outcome` holds (`home - away >/</== 0`),
+    ///   3. CPIs `validate_stat_v2` on the TxODDS oracle, which recomputes the
+    ///      Merkle root from the proof, compares it to its own anchored daily
+    ///      root PDA, and evaluates the predicate,
+    ///   4. requires the returned bool is `true`, then applies the same Brier
+    ///      scoring as `settle`.
+    ///
+    /// Because the strategy is built here and the stats are proven against
+    /// TxODDS's root, neither the caller nor any admin can assert a false
+    /// result: a wrong `actual_outcome` makes the predicate false and aborts.
+    pub fn settle_with_proof(
+        ctx: Context<SettleWithProof>,
+        match_id: u64,
+        actual_outcome: u8,
+        payload: StatValidationInput,
+    ) -> Result<()> {
+        require!(actual_outcome <= 2, ProvennError::InvalidOutcome);
+
+        // The oracle account must belong to the TxODDS program (its own PDA
+        // seed constraint is re-checked inside the CPI, but fail fast here).
+        require_keys_eq!(
+            *ctx.accounts.txoracle_program.key,
+            TXORACLE_PROGRAM_ID,
+            ProvennError::WrongOracleProgram
+        );
+        require_keys_eq!(
+            *ctx.accounts.daily_scores_roots.owner,
+            TXORACLE_PROGRAM_ID,
+            ProvennError::WrongOracleRoot
+        );
+
+        // Bind the proof to THIS match and to the pinned goal stats, in order.
+        require!(
+            payload.fixture_summary.fixture_id == match_id as i64,
+            ProvennError::ProofMatchMismatch
+        );
+        require!(payload.stats.len() == 2, ProvennError::ProofStatShape);
+        let home = &payload.stats[0].stat;
+        let away = &payload.stats[1].stat;
+        require!(
+            home.key == HOME_GOALS_STAT_KEY
+                && away.key == AWAY_GOALS_STAT_KEY
+                && home.period == FULL_TIME_PERIOD
+                && away.period == FULL_TIME_PERIOD,
+            ProvennError::ProofStatShape
+        );
+
+        // Ask the TxODDS oracle to prove the result we're about to score.
+        let strategy = outcome_strategy(actual_outcome);
+        let mut data = Vec::with_capacity(64);
+        data.extend_from_slice(&VALIDATE_STAT_V2_DISCM);
+        payload.serialize(&mut data)?;
+        strategy.serialize(&mut data)?;
+
+        let ix = Instruction {
+            program_id: TXORACLE_PROGRAM_ID,
+            accounts: vec![AccountMeta::new_readonly(
+                *ctx.accounts.daily_scores_roots.key,
+                false,
+            )],
+            data,
+        };
+        invoke(
+            &ix,
+            &[
+                ctx.accounts.daily_scores_roots.to_account_info(),
+                ctx.accounts.txoracle_program.to_account_info(),
+            ],
+        )?;
+
+        // `validate_stat_v2` returns a bool: 1 byte, 1 == valid.
+        let (returning_program, ret) =
+            get_return_data().ok_or(ProvennError::OracleNoReturn)?;
+        require_keys_eq!(returning_program, TXORACLE_PROGRAM_ID, ProvennError::WrongOracleProgram);
+        require!(
+            ret.first().copied() == Some(1),
+            ProvennError::OutcomeNotProven
+        );
+
+        apply_settlement(&mut ctx.accounts.commit, &mut ctx.accounts.agent, actual_outcome)
+    }
+}
+
+/// Shared Brier scoring + record accumulation for both settle paths.
+///
+/// - revealed and correct:  `(10000 - p)^2 / 10000`
+/// - revealed and wrong:    `p^2 / 10000`
+/// - unrevealed:            `10000` (maximally wrong — silence is penalized)
+fn apply_settlement(
+    commit: &mut Account<CommitAccount>,
+    agent: &mut Account<AgentAccount>,
+    actual_outcome: u8,
+) -> Result<()> {
+    require!(!commit.settled, ProvennError::AlreadySettled);
+
+    let brier_bps: u64 = if !commit.revealed {
+        MAX_BRIER_BPS
+    } else {
+        let p = commit.prediction.confidence_bps as u64;
+        if commit.prediction.outcome == actual_outcome {
+            let miss = MAX_BRIER_BPS - p;
+            miss.checked_mul(miss).ok_or(ProvennError::Overflow)? / MAX_BRIER_BPS
+        } else {
+            p.checked_mul(p).ok_or(ProvennError::Overflow)? / MAX_BRIER_BPS
+        }
+    };
+
+    commit.settled = true;
+    commit.brier_bps = brier_bps;
+    agent.cumulative_brier_bps = agent
+        .cumulative_brier_bps
+        .checked_add(brier_bps)
+        .ok_or(ProvennError::Overflow)?;
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------
@@ -345,6 +461,28 @@ pub struct Settle<'info> {
     pub settle_authority: Signer<'info>,
 }
 
+#[derive(Accounts)]
+#[instruction(match_id: u64)]
+pub struct SettleWithProof<'info> {
+    #[account(mut)]
+    pub agent: Account<'info, AgentAccount>,
+    #[account(
+        mut,
+        seeds = [b"commit", agent.key().as_ref(), &match_id.to_le_bytes()],
+        bump = commit.bump,
+        constraint = commit.agent == agent.key() @ ProvennError::CommitAgentMismatch
+    )]
+    pub commit: Account<'info, CommitAccount>,
+    /// CHECK: TxODDS daily-scores root PDA. Its owner is checked against the
+    /// oracle program here, and the oracle re-derives/validates its own PDA
+    /// seeds inside the CPI. Passed read-only.
+    pub daily_scores_roots: UncheckedAccount<'info>,
+    /// CHECK: the TxODDS oracle program; address is checked against the pinned
+    /// `TXORACLE_PROGRAM_ID` before the CPI.
+    pub txoracle_program: UncheckedAccount<'info>,
+    // No settle_authority: this path needs no trusted admin.
+}
+
 // -----------------------------------------------------------------------------
 // Errors
 // -----------------------------------------------------------------------------
@@ -371,4 +509,16 @@ pub enum ProvennError {
     InvalidConfidence,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("Oracle program account is not the TxODDS txoracle program")]
+    WrongOracleProgram,
+    #[msg("Daily-scores root account is not owned by the TxODDS oracle")]
+    WrongOracleRoot,
+    #[msg("Proof fixture id does not match this commit's match id")]
+    ProofMatchMismatch,
+    #[msg("Proof must carry exactly the two full-time goal stats (home, away)")]
+    ProofStatShape,
+    #[msg("TxODDS oracle returned no data from validate_stat_v2")]
+    OracleNoReturn,
+    #[msg("TxODDS oracle did not prove the asserted outcome")]
+    OutcomeNotProven,
 }

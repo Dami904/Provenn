@@ -91,6 +91,36 @@ export interface ScoreEvent {
 }
 
 /**
+ * GET /api/scores/stat-validation response (V2). A record plus the Merkle
+ * proofs needed to re-verify it against TxODDS's anchored daily-scores root.
+ * `ProofNode.hash` is a base64/hex-encoded 32-byte value on the wire.
+ */
+export interface ProofNode {
+  hash: string;
+  isRightSibling: boolean;
+}
+
+export interface ScoreStat {
+  key: number;
+  value: number;
+  period: number;
+}
+
+export interface StatValidationResponse {
+  ts: number;
+  statsToProve: ScoreStat[];
+  eventStatRoot: number[] | string;
+  summary: {
+    fixtureId: number;
+    updateStats: { updateCount: number; minTimestamp: number; maxTimestamp: number };
+    eventStatsSubTreeRoot: number[] | string;
+  };
+  statProofs: ProofNode[][];
+  subTreeProof: ProofNode[];
+  mainTreeProof: ProofNode[];
+}
+
+/**
  * DERIVED (not an API shape): one normalized full-time 1X2 point used by the
  * deterministic detector/integrity code. Produced from OddsPayload records
  * via toOddsSnapshot().

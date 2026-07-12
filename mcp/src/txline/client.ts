@@ -1,4 +1,4 @@
-import type { Fixture, OddsPayload, ScoreEvent } from "./types.js";
+import type { Fixture, OddsPayload, ScoreEvent, StatValidationResponse } from "./types.js";
 
 /**
  * Every TxLINE path lives here so corrections are one-line edits.
@@ -15,6 +15,8 @@ const ENDPOINTS = {
   scores: "api/scores/snapshot/{fixtureId}",
   /** FULL score-update sequence for one fixture (retention: ~6h–2wk after start). */
   scoresHistorical: "api/scores/historical/{fixtureId}",
+  /** Merkle proof for specific stats of a fixture, against TxODDS's daily root. */
+  scoreStatValidation: "api/scores/stat-validation",
 } as const;
 
 const BASE_URLS = {
@@ -87,6 +89,25 @@ export class TxLineClient {
   /** Full score-update sequence for a finished fixture (TxLINE retains ~2 weeks after kickoff). */
   async getScoresHistorical(matchId: string): Promise<ScoreEvent[]> {
     return this.get<ScoreEvent[]>(ENDPOINTS.scoresHistorical.replace("{fixtureId}", encodeURIComponent(matchId)));
+  }
+
+  /**
+   * Merkle validation for specific stats of a fixture (V2 statKeys form).
+   * Returns the record + sub-tree/main-tree proofs needed to re-verify against
+   * TxODDS's anchored daily-scores root — the raw material for trustless
+   * settlement (see ProvennChainClient.settleWithProof).
+   */
+  async getScoreStatValidation(
+    fixtureId: string,
+    seq: number,
+    statKeys: number[],
+  ): Promise<StatValidationResponse> {
+    const q = new URLSearchParams({
+      fixtureId,
+      seq: String(seq),
+      statKeys: statKeys.join(","),
+    });
+    return this.get<StatValidationResponse>(`${ENDPOINTS.scoreStatValidation}?${q}`);
   }
 
   private headers(includeJwt = true): Record<string, string> {
