@@ -67,6 +67,9 @@ export interface AgentRunnerOptions {
   capturesDir?: string;
   /** Competition filter (default "World Cup"). */
   competition?: string;
+  /** Lamports to stake on each commit (default 0 = no stake). Refunded
+   * accuracy-weighted at settlement; slashed for wrong/hidden calls. */
+  stakeLamports?: number;
 }
 
 /**
@@ -94,6 +97,7 @@ export class AgentRunner {
   private readonly logFile?: string;
   private readonly capturesDir?: string;
   private readonly competition: string;
+  private readonly stakeLamports: number;
   private readonly history = new Map<string, OddsSnapshot[]>();
   private state: RunnerState;
   private timer?: NodeJS.Timeout;
@@ -109,6 +113,7 @@ export class AgentRunner {
     this.logFile = options.logFile;
     this.capturesDir = options.capturesDir;
     this.competition = options.competition ?? "World Cup";
+    this.stakeLamports = options.stakeLamports ?? 0;
     this.state = this.loadState();
     const pending = Object.values(this.state.matches).filter((m) => m.phase !== "settled");
     this.log("startup", {
@@ -246,7 +251,7 @@ export class AgentRunner {
       prediction,
     });
     try {
-      const commitTx = await this.chain.commit(BigInt(matchId), hash);
+      const commitTx = await this.chain.commit(BigInt(matchId), hash, BigInt(this.stakeLamports));
       this.state.matches[matchId] = {
         matchId,
         prediction,

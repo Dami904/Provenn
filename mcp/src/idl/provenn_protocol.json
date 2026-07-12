@@ -20,7 +20,16 @@
         "Trust model: the commit PDA (seeds: `[\"commit\", agent, match_id]`)",
         "allows exactly one commit per agent per match; there is no way to",
         "commit twice and later keep only the winner. **Unrevealed commits",
-        "score as losses — silence is penalized.**"
+        "score as losses — silence is penalized.**",
+        "",
+        "## Staking (skin in the game)",
+        "",
+        "`stake` (lamports, may be 0) is escrowed into a per-commit `StakeEscrow`",
+        "PDA. At settlement the agent is refunded `stake × (10000 − brier) /",
+        "10000` and the rest is slashed to the treasury — so the agent risks",
+        "capital proportional to how wrong its call turns out to be, and an",
+        "unrevealed call (Brier 10000) loses the whole stake. The escrow is a",
+        "separate account, so `CommitAccount`'s layout is unchanged."
       ],
       "discriminator": [
         223,
@@ -83,6 +92,28 @@
           }
         },
         {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "commit"
+              }
+            ]
+          }
+        },
+        {
           "name": "authority",
           "writable": true,
           "signer": true,
@@ -108,6 +139,10 @@
               32
             ]
           }
+        },
+        {
+          "name": "stake",
+          "type": "u64"
         }
       ]
     },
@@ -356,14 +391,72 @@
                 "path": "match_id"
               }
             ]
+          },
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "commit"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The agent's authority — receives the stake refund (via the escrow close)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
           }
         },
         {
           "name": "settle_authority",
           "docs": [
-            "TODO(oracle): replace admin signer with TxLINE validation-proof check."
+            "TODO(oracle): the admin settle path; `settle_with_proof` is the trustless one."
           ],
+          "writable": true,
           "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -441,6 +534,59 @@
                 "path": "match_id"
               }
             ]
+          },
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "commit"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The agent's authority — receives the stake refund (via the escrow close)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
           }
         },
         {
@@ -455,6 +601,19 @@
           "docs": [
             "`TXORACLE_PROGRAM_ID` before the CPI."
           ]
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Whoever submits the settlement pays the tx + first-time treasury rent.",
+            "No trust: they cannot influence the result (it's proven by the oracle)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -502,6 +661,32 @@
         200,
         118,
         188
+      ]
+    },
+    {
+      "name": "StakeEscrow",
+      "discriminator": [
+        115,
+        173,
+        53,
+        77,
+        43,
+        219,
+        85,
+        124
+      ]
+    },
+    {
+      "name": "Treasury",
+      "discriminator": [
+        238,
+        239,
+        123,
+        238,
+        89,
+        1,
+        168,
+        253
       ]
     }
   ],
@@ -558,31 +743,36 @@
     },
     {
       "code": 6010,
+      "name": "EscrowUnderflow",
+      "msg": "Stake escrow has fewer lamports than the recorded stake"
+    },
+    {
+      "code": 6011,
       "name": "WrongOracleProgram",
       "msg": "Oracle program account is not the TxODDS txoracle program"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "WrongOracleRoot",
       "msg": "Daily-scores root account is not owned by the TxODDS oracle"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "ProofMatchMismatch",
       "msg": "Proof fixture id does not match this commit's match id"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "ProofStatShape",
       "msg": "Proof must carry exactly the two full-time goal stats (home, away)"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "OracleNoReturn",
       "msg": "TxODDS oracle returned no data from validate_stat_v2"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "OutcomeNotProven",
       "msg": "TxODDS oracle did not prove the asserted outcome"
     }
@@ -853,6 +1043,38 @@
       }
     },
     {
+      "name": "StakeEscrow",
+      "docs": [
+        "Per-commit stake escrow. Kept as its own account (seeds `[\"stake\", commit]`)",
+        "so `CommitAccount`'s layout — and every commit written before staking",
+        "existed — stays readable. Holds the escrowed lamports plus its own rent;",
+        "closed to the agent at settlement."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "commit",
+            "docs": [
+              "The commit this escrow backs."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Escrowed stake in lamports (may be 0)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "StatLeaf",
       "type": {
         "kind": "struct",
@@ -937,6 +1159,28 @@
                 }
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Treasury",
+      "docs": [
+        "Protocol treasury — receives slashed stake. Created on first settlement."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "total_slashed",
+            "docs": [
+              "Cumulative lamports slashed from wrong/hidden calls."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }

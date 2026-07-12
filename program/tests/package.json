@@ -1,0 +1,16 @@
+{
+  "name": "provenn-program-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "litesvm in-process integration tests for the Provenn Anchor program (no live validator).",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/web3.js": "^1.98.4",
+    "litesvm": "^0.2.0",
+    "vitest": "^2.1.9"
+  }
+}

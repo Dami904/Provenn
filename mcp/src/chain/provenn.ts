@@ -136,6 +136,19 @@ export class ProvennChainClient {
     )[0];
   }
 
+  /** Per-commit stake escrow PDA (seeds ["stake", commit]). */
+  escrowPda(matchId: bigint, authority: PublicKey = this.wallet.publicKey): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("stake"), this.commitPda(matchId, authority).toBuffer()],
+      PROVENN_PROGRAM_ID,
+    )[0];
+  }
+
+  /** Protocol treasury PDA (seeds ["treasury"]) — receives slashed stake. */
+  treasuryPda(): PublicKey {
+    return PublicKey.findProgramAddressSync([Buffer.from("treasury")], PROVENN_PROGRAM_ID)[0];
+  }
+
   /** register_agent(name, strategy_hash) — creates the agent PDA. */
   async registerAgent(name: string, strategyHash: Uint8Array): Promise<string> {
     return this.program.methods
@@ -144,10 +157,13 @@ export class ProvennChainClient {
       .rpc();
   }
 
-  /** commit(match_id, prediction_hash) — one commit per agent per match. */
-  async commit(matchId: bigint, predictionHash: Uint8Array): Promise<string> {
+  /**
+   * commit(match_id, prediction_hash, stake) — one commit per agent per match.
+   * `stake` (lamports, default 0) is escrowed and settled accuracy-weighted.
+   */
+  async commit(matchId: bigint, predictionHash: Uint8Array, stake: bigint = 0n): Promise<string> {
     return this.program.methods
-      .commit(new BN(matchId.toString()), Array.from(predictionHash))
+      .commit(new BN(matchId.toString()), Array.from(predictionHash), new BN(stake.toString()))
       .accounts({ authority: this.wallet.publicKey })
       .rpc();
   }
@@ -171,6 +187,7 @@ export class ProvennChainClient {
       .accounts({
         agent: this.agentPda(),
         commit: this.commitPda(matchId),
+        authority: this.wallet.publicKey,
         settleAuthority: this.wallet.publicKey,
       })
       .rpc();
@@ -234,13 +251,16 @@ export class ProvennChainClient {
     };
 
     const dailyScoresRoots = this.txoracleDailyScoresPda(validation.ts);
+    const agentAuthority = authority ?? this.wallet.publicKey;
     return this.program.methods
       .settleWithProof(new BN(matchId.toString()), actualOutcome, payload)
       .accounts({
         agent: this.agentPda(authority),
         commit: this.commitPda(matchId, authority),
+        authority: agentAuthority,
         dailyScoresRoots,
         txoracleProgram: TXORACLE_PROGRAM_ID,
+        payer: this.wallet.publicKey,
       })
       .rpc();
   }

@@ -101,7 +101,21 @@ pub mod provenn_protocol {
     /// allows exactly one commit per agent per match; there is no way to
     /// commit twice and later keep only the winner. **Unrevealed commits
     /// score as losses — silence is penalized.**
-    pub fn commit(ctx: Context<Commit>, match_id: u64, prediction_hash: [u8; 32]) -> Result<()> {
+    ///
+    /// ## Staking (skin in the game)
+    ///
+    /// `stake` (lamports, may be 0) is escrowed into a per-commit `StakeEscrow`
+    /// PDA. At settlement the agent is refunded `stake × (10000 − brier) /
+    /// 10000` and the rest is slashed to the treasury — so the agent risks
+    /// capital proportional to how wrong its call turns out to be, and an
+    /// unrevealed call (Brier 10000) loses the whole stake. The escrow is a
+    /// separate account, so `CommitAccount`'s layout is unchanged.
+    pub fn commit(
+        ctx: Context<Commit>,
+        match_id: u64,
+        prediction_hash: [u8; 32],
+        stake: u64,
+    ) -> Result<()> {
         let clock = Clock::get()?;
         let commit = &mut ctx.accounts.commit;
         commit.agent = ctx.accounts.agent.key();
@@ -114,6 +128,26 @@ pub mod provenn_protocol {
         commit.prediction = Prediction::default();
         commit.brier_bps = 0;
         commit.bump = ctx.bumps.commit;
+
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.commit = commit.key();
+        escrow.amount = stake;
+        escrow.bump = ctx.bumps.escrow;
+
+        // Escrow the stake on top of the escrow account's rent. Refunded/slashed
+        // at settlement; the rent round-trips to the agent when the escrow closes.
+        if stake > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.authority.to_account_info(),
+                        to: escrow.to_account_info(),
+                    },
+                ),
+                stake,
+            )?;
+        }
 
         let agent = &mut ctx.accounts.agent;
         agent.total_commits = agent
@@ -200,7 +234,18 @@ pub mod provenn_protocol {
             ProvennError::NotAuthority
         );
 
-        apply_settlement(&mut ctx.accounts.commit, &mut ctx.accounts.agent, actual_outcome)
+        let brier = apply_settlement(&mut ctx.accounts.commit, &mut ctx.accounts.agent, actual_outcome)?;
+        let amount = ctx.accounts.escrow.amount;
+        let slash = settle_stake(
+            &ctx.accounts.escrow.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
+            amount,
+            brier,
+        )?;
+        let treasury = &mut ctx.accounts.treasury;
+        treasury.total_slashed = treasury.total_slashed.checked_add(slash).ok_or(ProvennError::Overflow)?;
+        treasury.bump = ctx.bumps.treasury;
+        Ok(())
     }
 
     /// Trustless settlement: score a commit against a match result proven by
@@ -293,8 +338,47 @@ pub mod provenn_protocol {
             ProvennError::OutcomeNotProven
         );
 
-        apply_settlement(&mut ctx.accounts.commit, &mut ctx.accounts.agent, actual_outcome)
+        let brier = apply_settlement(&mut ctx.accounts.commit, &mut ctx.accounts.agent, actual_outcome)?;
+        let amount = ctx.accounts.escrow.amount;
+        let slash = settle_stake(
+            &ctx.accounts.escrow.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
+            amount,
+            brier,
+        )?;
+        let treasury = &mut ctx.accounts.treasury;
+        treasury.total_slashed = treasury.total_slashed.checked_add(slash).ok_or(ProvennError::Overflow)?;
+        treasury.bump = ctx.bumps.treasury;
+        Ok(())
     }
+}
+
+/// Move a settled commit's escrowed stake: slash the accuracy-weighted share
+/// to the treasury and leave the remainder for the escrow's `close = authority`
+/// to return to the agent. `brier_bps` in 0..=10000 (lower is better), so the
+/// slash grows with the error; an unrevealed call (10000) loses the whole
+/// stake. Returns the slashed amount. No-op when `amount == 0`.
+fn settle_stake(
+    escrow: &AccountInfo,
+    treasury: &AccountInfo,
+    amount: u64,
+    brier_bps: u64,
+) -> Result<u64> {
+    if amount == 0 {
+        return Ok(0);
+    }
+    let keep = MAX_BRIER_BPS.saturating_sub(brier_bps);
+    let refund = ((amount as u128) * (keep as u128) / (MAX_BRIER_BPS as u128)) as u64;
+    let slash = amount.checked_sub(refund).ok_or(ProvennError::Overflow)?;
+    **escrow.try_borrow_mut_lamports()? = escrow
+        .lamports()
+        .checked_sub(slash)
+        .ok_or(ProvennError::EscrowUnderflow)?;
+    **treasury.try_borrow_mut_lamports()? = treasury
+        .lamports()
+        .checked_add(slash)
+        .ok_or(ProvennError::Overflow)?;
+    Ok(slash)
 }
 
 /// Shared Brier scoring + record accumulation for both settle paths.
@@ -306,7 +390,7 @@ fn apply_settlement(
     commit: &mut Account<CommitAccount>,
     agent: &mut Account<AgentAccount>,
     actual_outcome: u8,
-) -> Result<()> {
+) -> Result<u64> {
     require!(!commit.settled, ProvennError::AlreadySettled);
 
     let brier_bps: u64 = if !commit.revealed {
@@ -327,7 +411,7 @@ fn apply_settlement(
         .cumulative_brier_bps
         .checked_add(brier_bps)
         .ok_or(ProvennError::Overflow)?;
-    Ok(())
+    Ok(brier_bps)
 }
 
 // -----------------------------------------------------------------------------
@@ -388,6 +472,29 @@ pub struct CommitAccount {
     pub bump: u8,
 }
 
+/// Per-commit stake escrow. Kept as its own account (seeds `["stake", commit]`)
+/// so `CommitAccount`'s layout — and every commit written before staking
+/// existed — stays readable. Holds the escrowed lamports plus its own rent;
+/// closed to the agent at settlement.
+#[account]
+#[derive(InitSpace)]
+pub struct StakeEscrow {
+    /// The commit this escrow backs.
+    pub commit: Pubkey,
+    /// Escrowed stake in lamports (may be 0).
+    pub amount: u64,
+    pub bump: u8,
+}
+
+/// Protocol treasury — receives slashed stake. Created on first settlement.
+#[account]
+#[derive(InitSpace)]
+pub struct Treasury {
+    /// Cumulative lamports slashed from wrong/hidden calls.
+    pub total_slashed: u64,
+    pub bump: u8,
+}
+
 // -----------------------------------------------------------------------------
 // Instruction accounts
 // -----------------------------------------------------------------------------
@@ -425,6 +532,14 @@ pub struct Commit<'info> {
         bump
     )]
     pub commit: Account<'info, CommitAccount>,
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + StakeEscrow::INIT_SPACE,
+        seeds = [b"stake", commit.key().as_ref()],
+        bump
+    )]
+    pub escrow: Account<'info, StakeEscrow>,
     #[account(mut)]
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -462,8 +577,29 @@ pub struct Settle<'info> {
         constraint = commit.agent == agent.key() @ ProvennError::CommitAgentMismatch
     )]
     pub commit: Account<'info, CommitAccount>,
-    /// TODO(oracle): replace admin signer with TxLINE validation-proof check.
+    #[account(
+        mut,
+        close = authority,
+        seeds = [b"stake", commit.key().as_ref()],
+        bump = escrow.bump,
+        has_one = commit @ ProvennError::CommitAgentMismatch
+    )]
+    pub escrow: Account<'info, StakeEscrow>,
+    /// The agent's authority — receives the stake refund (via the escrow close).
+    #[account(mut, constraint = authority.key() == agent.authority @ ProvennError::CommitAgentMismatch)]
+    pub authority: SystemAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = settle_authority,
+        space = 8 + Treasury::INIT_SPACE,
+        seeds = [b"treasury"],
+        bump
+    )]
+    pub treasury: Account<'info, Treasury>,
+    /// TODO(oracle): the admin settle path; `settle_with_proof` is the trustless one.
+    #[account(mut)]
     pub settle_authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -478,6 +614,25 @@ pub struct SettleWithProof<'info> {
         constraint = commit.agent == agent.key() @ ProvennError::CommitAgentMismatch
     )]
     pub commit: Account<'info, CommitAccount>,
+    #[account(
+        mut,
+        close = authority,
+        seeds = [b"stake", commit.key().as_ref()],
+        bump = escrow.bump,
+        has_one = commit @ ProvennError::CommitAgentMismatch
+    )]
+    pub escrow: Account<'info, StakeEscrow>,
+    /// The agent's authority — receives the stake refund (via the escrow close).
+    #[account(mut, constraint = authority.key() == agent.authority @ ProvennError::CommitAgentMismatch)]
+    pub authority: SystemAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = 8 + Treasury::INIT_SPACE,
+        seeds = [b"treasury"],
+        bump
+    )]
+    pub treasury: Account<'info, Treasury>,
     /// CHECK: TxODDS daily-scores root PDA. Its owner is checked against the
     /// oracle program here, and the oracle re-derives/validates its own PDA
     /// seeds inside the CPI. Passed read-only.
@@ -485,7 +640,11 @@ pub struct SettleWithProof<'info> {
     /// CHECK: the TxODDS oracle program; address is checked against the pinned
     /// `TXORACLE_PROGRAM_ID` before the CPI.
     pub txoracle_program: UncheckedAccount<'info>,
-    // No settle_authority: this path needs no trusted admin.
+    /// Whoever submits the settlement pays the tx + first-time treasury rent.
+    /// No trust: they cannot influence the result (it's proven by the oracle).
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 // -----------------------------------------------------------------------------
@@ -514,6 +673,8 @@ pub enum ProvennError {
     InvalidConfidence,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("Stake escrow has fewer lamports than the recorded stake")]
+    EscrowUnderflow,
     #[msg("Oracle program account is not the TxODDS txoracle program")]
     WrongOracleProgram,
     #[msg("Daily-scores root account is not owned by the TxODDS oracle")]
