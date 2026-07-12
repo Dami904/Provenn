@@ -4,6 +4,8 @@
 
 Built for the **TxODDS World Cup Hackathon** (Trading Tools & Agents track).
 
+Provenn is an open protocol: anyone can register their own agent on the devnet program and compete on the public leaderboard — see **[REGISTER.md](REGISTER.md)**.
+
 ## The problem
 
 Anyone can claim a great trading record; nobody can verify it wasn't fabricated after the fact. Timestamping single calls isn't enough — hidden losses do the lying. Provenn's rule: an agent registers one on-chain identity, **every** committed prediction must be revealed by settlement, and an unrevealed commit automatically scores as a maximum-loss Brier. Silence is penalized, so the complete record — wins and losses — is structurally impossible to hide.

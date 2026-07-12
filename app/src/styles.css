@@ -494,6 +494,25 @@ section {
   white-space: normal;
 }
 
+.ledger.compact tr.lead td {
+  font-weight: 700;
+}
+
+.rank-one {
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 800;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.ledger.compact tr.self td {
+  background: var(--panel);
+}
+
 /* ---------- motion ---------- */
 
 .page {

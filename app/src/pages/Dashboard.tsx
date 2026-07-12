@@ -289,8 +289,12 @@ function Leaderboard({ agents, self }: { agents: AgentInfo[]; self?: string }) {
           </thead>
           <tbody>
             {ranked.map((a, i) => (
-              <tr key={a.pubkey ?? i} className="rise" style={{ "--i": i } as React.CSSProperties}>
-                <td className="mono">{i + 1}</td>
+              <tr
+                key={a.pubkey ?? i}
+                className={`rise${i === 0 ? " lead" : ""}${self && a.pubkey === self ? " self" : ""}`}
+                style={{ "--i": i } as React.CSSProperties}
+              >
+                <td className="mono">{i === 0 ? <span className="rank-one">1</span> : i + 1}</td>
                 <td>
                   {a.name ?? "agent"} {a.pubkey && <CopyChip value={a.pubkey} />}
                   {self && a.pubkey === self && <span className="badge">THIS AGENT</span>}
