@@ -5,7 +5,14 @@ import type { ProvennChainClient } from "../chain/provenn.js";
 import { detectShift } from "../signal/detector.js";
 import { checkFeedIntegrity } from "../signal/integrity.js";
 import { appendCapture } from "../recorder.js";
-import { toOddsSnapshot, type Fixture, type OddsPayload, type OddsSnapshot, type ScoreEvent } from "../txline/types.js";
+import {
+  toOddsSnapshot,
+  type Fixture,
+  type OddsPayload,
+  type OddsSnapshot,
+  type ScoreEvent,
+  type StatValidationResponse,
+} from "../txline/types.js";
 import { commitHash, confidenceFromDrift, outcomeFromScore, outcomeIndex, type Prediction } from "./prediction.js";
 
 /** Best-effort human-readable message from anything thrown (anchor throws objects). */
@@ -24,12 +31,18 @@ export interface Feed {
   getFixtures(startEpochDay?: number): Promise<Fixture[]>;
   getOddsSnapshot(matchId: string): Promise<OddsPayload[]>;
   getScores(matchId: string): Promise<ScoreEvent[]>;
+  /** TxODDS Merkle proof of a fixture's stats — present on the live feed only
+   * (ReplayFeed omits it, so those settle via the admin fallback). */
+  getScoreStatValidation?(fixtureId: string, seq: number, statKeys: number[]): Promise<StatValidationResponse>;
   /** ReplayFeed's virtual clock; live feeds omit this and we use Date.now(). */
   virtualNowMs?(): number;
 }
 
 /** Minimal chain surface the runner needs (ProvennChainClient satisfies it). */
-export type Chain = Pick<ProvennChainClient, "commit" | "reveal" | "settle" | "fetchAgent">;
+export type Chain = Pick<
+  ProvennChainClient,
+  "commit" | "reveal" | "settle" | "settleWithProof" | "fetchAgent"
+>;
 
 export type MatchPhase = "committed" | "revealed" | "settled";
 
@@ -287,11 +300,17 @@ export class AgentRunner {
         this.log("awaiting_final", { matchId: record.matchId, phase: record.phase, scoreEvents: scores.length });
         continue;
       }
-      await this.revealAndSettle(record, actualOutcome);
+      const finalEvent = scores.find((s) => s.Action === "game_finalised");
+      const seq = typeof finalEvent?.Seq === "number" ? finalEvent.Seq : undefined;
+      await this.revealAndSettle(record, actualOutcome, seq);
     }
   }
 
-  private async revealAndSettle(record: MatchRecord, actualOutcome: number): Promise<void> {
+  private async revealAndSettle(
+    record: MatchRecord,
+    actualOutcome: number,
+    finalSeq?: number,
+  ): Promise<void> {
     const matchId = BigInt(record.matchId);
     if (record.phase === "committed") {
       try {
@@ -315,24 +334,44 @@ export class AgentRunner {
       }
     }
     if (record.phase === "revealed") {
-      try {
-        const settleTx = await this.chain.settle(matchId, actualOutcome);
-        record.settleTx = settleTx;
-        record.actualOutcome = actualOutcome;
-        record.phase = "settled";
-        this.saveState();
-        this.log("settled", {
-          matchId: record.matchId,
-          actualOutcome,
-          predicted: record.prediction,
-          correct: record.prediction.outcome === actualOutcome,
-          settleTx,
-          explorer: `https://explorer.solana.com/tx/${settleTx}?cluster=devnet`,
-        });
-      } catch (err) {
-        this.log("settle_error", { matchId: record.matchId, error: errorMessage(err) });
-        return;
+      let settleTx: string | undefined;
+      let settlePath: "proof" | "admin" = "admin";
+
+      // Prefer TRUSTLESS settlement: fetch the TxODDS Merkle proof of the two
+      // goal stats and let the program verify the outcome via CPI. Falls back
+      // to the admin path when no proof is available (replay mode) or the
+      // proof/CPI fails for any reason.
+      if (this.feed.getScoreStatValidation && finalSeq !== undefined) {
+        try {
+          const validation = await this.feed.getScoreStatValidation(record.matchId, finalSeq, [1, 2]);
+          settleTx = await this.chain.settleWithProof(matchId, actualOutcome, validation);
+          settlePath = "proof";
+        } catch (err) {
+          this.log("settle_proof_fallback", { matchId: record.matchId, reason: errorMessage(err) });
+        }
       }
+      if (!settleTx) {
+        try {
+          settleTx = await this.chain.settle(matchId, actualOutcome);
+        } catch (err) {
+          this.log("settle_error", { matchId: record.matchId, error: errorMessage(err) });
+          return;
+        }
+      }
+
+      record.settleTx = settleTx;
+      record.actualOutcome = actualOutcome;
+      record.phase = "settled";
+      this.saveState();
+      this.log("settled", {
+        matchId: record.matchId,
+        actualOutcome,
+        path: settlePath,
+        predicted: record.prediction,
+        correct: record.prediction.outcome === actualOutcome,
+        settleTx,
+        explorer: `https://explorer.solana.com/tx/${settleTx}?cluster=devnet`,
+      });
       try {
         const agent = await this.chain.fetchAgent();
         if (agent) {
