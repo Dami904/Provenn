@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm run build --workspace=@provenn/app",
+  "outputDirectory": "app/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
