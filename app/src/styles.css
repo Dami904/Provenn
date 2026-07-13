@@ -418,6 +418,11 @@ section {
   background: var(--red);
   color: #fff;
 }
+.badge.trustless {
+  background: transparent;
+  color: var(--green);
+  border: 1.5px solid var(--green);
+}
 
 .chip {
   font-family: var(--mono);
@@ -615,6 +620,21 @@ section {
 
 .chart {
   position: relative;
+}
+
+.calibration-panel {
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  background: var(--bg);
+  padding: 16px;
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.calibration-panel img {
+  max-width: 100%;
+  height: auto;
 }
 
 .chart svg {

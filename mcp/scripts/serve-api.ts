@@ -18,6 +18,7 @@ import { ProvennChainClient } from "../src/chain/provenn.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LOG_FILE = resolve(root, "agent-log.jsonl");
 const AGENT_FILE = resolve(root, "agent-state", "agent.json");
+const MANIFEST_FILE = resolve(root, "scripts", "settlement-manifest.json");
 const PORT = Number(process.env.PORT ?? 8787);
 
 function readLog(): unknown[] {
@@ -33,6 +34,60 @@ function readLog(): unknown[] {
     }
   }
   return out;
+}
+
+interface LogMeta {
+  settlementPath?: "proof" | "admin";
+  settleTx?: string;
+  stakeLamports?: number;
+}
+
+/** Tracked seed for facts a fresh instance's local log wouldn't have — see readLogMeta. */
+function readManifest(): Map<string, LogMeta> {
+  const meta = new Map<string, LogMeta>();
+  if (!existsSync(MANIFEST_FILE)) return meta;
+  try {
+    const rows = JSON.parse(readFileSync(MANIFEST_FILE, "utf8")) as Array<{
+      matchId: string;
+      settlementPath?: "proof" | "admin";
+      settleTx?: string;
+    }>;
+    for (const r of rows) meta.set(r.matchId, { settlementPath: r.settlementPath, settleTx: r.settleTx });
+  } catch {
+    /* malformed manifest — ignore, log-derived meta still applies */
+  }
+  return meta;
+}
+
+/**
+ * The chain doesn't record which settle instruction closed a commit (`settle`
+ * vs the trustless `settle_with_proof`), nor — once an escrow closes at
+ * settlement — how much was staked. Both facts only exist off-chain: the
+ * tracked manifest seeds facts from before this deploy (agent-log.jsonl is a
+ * gitignored runtime artifact and starts empty on a fresh instance), then the
+ * local log's "committed"/"settled" events layer on top (path defaults to
+ * "admin" when the log predates the `path` field).
+ */
+function readLogMeta(): Map<string, LogMeta> {
+  const meta = readManifest();
+  for (const entry of readLog()) {
+    const e = entry as {
+      event?: string;
+      matchId?: string | number;
+      path?: string;
+      settleTx?: string;
+      stakeLamports?: number;
+    };
+    if (e.matchId === undefined) continue;
+    const id = String(e.matchId);
+    const prev = meta.get(id) ?? {};
+    if (e.event === "settled") {
+      meta.set(id, { ...prev, settlementPath: e.path === "proof" ? "proof" : "admin", settleTx: e.settleTx });
+    } else if (e.event === "committed" && e.stakeLamports !== undefined) {
+      meta.set(id, { ...prev, stakeLamports: e.stakeLamports });
+    }
+  }
+  return meta;
 }
 
 function readAgentFile(): unknown {
@@ -105,19 +160,27 @@ async function readCommits(): Promise<unknown> {
   if (commitsCache && Date.now() - commitsCache.at < AGENT_CACHE_MS) return commitsCache.value;
   try {
     const commits = await getChain().allCommits();
+    const logMeta = readLogMeta();
     const value = commits
-      .map((c) => ({
-        matchId: c.matchId.toString(),
-        agent: c.agent.toString(),
-        hash: Buffer.from(c.predictionHash).toString("hex"),
-        slot: Number(c.slot),
-        ts: Number(c.unixTimestamp) * 1000,
-        revealed: c.revealed,
-        settled: c.settled,
-        outcome: c.revealed ? c.prediction.outcome : undefined,
-        confidenceBps: c.revealed ? c.prediction.confidence_bps : undefined,
-        brierBps: c.settled ? Number(c.brierBps) : undefined,
-      }))
+      .map((c) => {
+        const matchId = c.matchId.toString();
+        const meta = logMeta.get(matchId);
+        return {
+          matchId,
+          agent: c.agent.toString(),
+          hash: Buffer.from(c.predictionHash).toString("hex"),
+          slot: Number(c.slot),
+          ts: Number(c.unixTimestamp) * 1000,
+          revealed: c.revealed,
+          settled: c.settled,
+          outcome: c.revealed ? c.prediction.outcome : undefined,
+          confidenceBps: c.revealed ? c.prediction.confidence_bps : undefined,
+          brierBps: c.settled ? Number(c.brierBps) : undefined,
+          settlementPath: c.settled ? meta?.settlementPath : undefined,
+          settleTx: c.settled ? meta?.settleTx : undefined,
+          stakeLamports: meta?.stakeLamports,
+        };
+      })
       .sort((a, b) => b.slot - a.slot);
     commitsCache = { at: Date.now(), value };
     return value;

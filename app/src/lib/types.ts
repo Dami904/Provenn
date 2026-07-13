@@ -43,6 +43,14 @@ export interface ChainCommit {
   outcome?: number;
   confidenceBps?: number;
   brierBps?: number;
+  /** Which settle instruction closed this commit — "proof" is the trustless,
+   *  admin-free path (CPI to the TxODDS oracle). Only known for settled
+   *  commits the runner (or an exercise script) logged; not stored on-chain. */
+  settlementPath?: "proof" | "admin";
+  settleTx?: string;
+  /** Lamports escrowed at commit time. Not derivable from chain after
+   *  settlement (the escrow account closes), so this comes from the log. */
+  stakeLamports?: number;
 }
 
 export type Phase = "committed" | "revealed" | "settled" | "unrevealed-loss";
@@ -62,6 +70,8 @@ export interface LedgerRow {
   settleTx?: string;
   brierBps?: number;
   phase: Phase;
+  settlementPath?: "proof" | "admin";
+  stakeLamports?: number;
 }
 
 export interface ProbPoint {
@@ -253,6 +263,9 @@ export function mergeChainCommits(
     if (c.outcome !== undefined) row.outcome = c.outcome;
     if (c.confidenceBps !== undefined) row.confidenceBps = c.confidenceBps;
     if (c.brierBps !== undefined) row.brierBps = c.brierBps;
+    if (c.settlementPath !== undefined) row.settlementPath = c.settlementPath;
+    if (c.settleTx && !row.settleTx) row.settleTx = c.settleTx;
+    if (c.stakeLamports !== undefined) row.stakeLamports = c.stakeLamports;
     row.phase = c.settled
       ? c.revealed
         ? "settled"

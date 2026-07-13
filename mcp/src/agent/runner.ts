@@ -278,6 +278,7 @@ export class AgentRunner {
         matchId,
         prediction,
         commitTx,
+        stakeLamports: this.stakeLamports,
         explorer: `https://explorer.solana.com/tx/${commitTx}?cluster=devnet`,
       });
     } catch (err) {

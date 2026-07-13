@@ -96,6 +96,22 @@ function RowDetail({ row }: { row: LedgerRow }) {
                 </dd>
               </>
             )}
+            {row.settlementPath && (
+              <>
+                <dt>Settlement path</dt>
+                <dd>
+                  {row.settlementPath === "proof"
+                    ? "settle_with_proof — program CPIs TxODDS's on-chain oracle to verify the score; no admin signature asserts the outcome"
+                    : "settle — admin-reported outcome (SETTLE_AUTHORITY signer)"}
+                </dd>
+              </>
+            )}
+            {!!row.stakeLamports && (
+              <>
+                <dt>Staked</dt>
+                <dd>{(row.stakeLamports / 1e9).toFixed(4)} SOL — refunded/slashed accuracy-weighted at settlement</dd>
+              </>
+            )}
           </dl>
           {row.hash && (
             <div className="equation">
@@ -295,7 +311,36 @@ export function Dashboard({ state }: { state: DashboardState }) {
         <h2 className="section-title">Leaderboard</h2>
         <Leaderboard agents={agents.length ? agents : agent ? [agent] : []} self={agent?.pubkey} mode={mode} />
       </section>
+
+      <Calibration mode={mode} />
     </div>
+  );
+}
+
+function Calibration({ mode }: { mode: ViewMode }) {
+  return (
+    <section className="rise" style={{ "--i": 3 } as React.CSSProperties}>
+      <h2 className="section-title">Is the confidence trustworthy?</h2>
+      {mode === "simple" ? (
+        <p className="what-strip">
+          We checked, honestly: over 76 finished World Cup matches, the signal detector fired 10 calls.
+          It was <strong>overconfident</strong> — when it said "62–72% sure," it was actually right about
+          33–57% of the time. The Brier scoring above still holds each call accountable either way, but
+          the raw confidence numbers shouldn't be read as calibrated probabilities yet.
+        </p>
+      ) : (
+        <p className="what-strip">
+          Reliability backtest over 76 completed World Cup fixtures (pre-match odds drift, 3pp threshold):
+          10 signals fired, hit-rate 50%, mean Brier 0.289. The detector's stated confidence overstates its
+          actual accuracy at every bucket sampled — see <code>mcp/scripts/calibration.ts</code> to
+          reproduce. This is scored the same as any other call (Brier doesn't grade confidence calibration
+          away), but it's a known limitation of <code>confidenceFromDrift</code>, not a claim we're hiding.
+        </p>
+      )}
+      <div className="calibration-panel">
+        <img src="/calibration.svg" alt="Calibration plot: predicted confidence vs. actual hit-rate, 10 signals" />
+      </div>
+    </section>
   );
 }
 
@@ -458,6 +503,19 @@ function LedgerRowView({
           <PhaseBadge phase={row.phase} mode={mode} />
         </td>
         <td>
+          {row.settlementPath === "proof" && (
+            <a
+              className="badge trustless"
+              href={row.settleTx ? explorerTx(row.settleTx) : undefined}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title="Settled by the program CPI-verifying a TxODDS Merkle proof — no admin asserted this result"
+              style={{ marginRight: 6 }}
+            >
+              ✓ trustless
+            </a>
+          )}
           {row.hash && <CopyChip value={row.hash} />} <TxLink sig={row.commitTx} label="commit" />{" "}
           <TxLink sig={row.revealTx} label="reveal" /> <TxLink sig={row.settleTx} label="settle" />
         </td>

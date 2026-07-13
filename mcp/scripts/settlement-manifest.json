@@ -1,0 +1,8 @@
+[
+  {
+    "matchId": "18213979",
+    "settlementPath": "proof",
+    "settleTx": "4iJm4p5gbamNbFJ4NrgBQWDbK6zqoWszem21h132prvkKwAbaW9RWEiydaqxCNWP6L9pUcx6cyLFUdxx14tSGwyu",
+    "note": "settled via scripts/exercise-settle-proof.ts against real fixture 18213979 (Norway 1-2 England); tracked here (not just agent-log.jsonl) so deployed instances with no local log still know this commit was settled trustlessly"
+  }
+]

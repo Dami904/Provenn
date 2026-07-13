@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { explorerAddr, meanBrier, shortHash, type DashboardState } from "../lib/data";
+import { explorerAddr, explorerTx, meanBrier, shortHash, type DashboardState } from "../lib/data";
 import { callResult, meanBrierNum, useViewMode, verdict } from "../lib/plain";
 import { navigate, onLinkClick } from "../lib/router";
 import { OUTCOME_LABELS, type AgentInfo, type ChainCommit } from "../lib/types";
@@ -144,11 +144,28 @@ function CallCard({ c, mode, index }: { c: ChainCommit; mode: string; index: num
   return (
     <li className="call rise" style={{ "--i": index } as React.CSSProperties}>
       <div className="call-main">
-        <div className="call-fixture">Match {c.matchId ?? "—"}</div>
+        <div className="call-fixture">
+          Match {c.matchId ?? "—"}
+          {c.settled && c.settlementPath === "proof" && (
+            <a
+              className="badge trustless"
+              href={c.settleTx ? explorerTx(c.settleTx) : undefined}
+              target="_blank"
+              rel="noreferrer"
+              title="Settled by the program CPI-verifying a TxODDS Merkle proof — no admin asserted this result"
+              style={{ marginLeft: 8 }}
+            >
+              ✓ trustless-verified
+            </a>
+          )}
+        </div>
         <div className="call-pick">
           Picked <strong>{pick}</strong>
           {c.revealed && c.confidenceBps !== undefined && (
             <span className="call-conf"> · {(c.confidenceBps / 100).toFixed(0)}% sure</span>
+          )}
+          {!!c.stakeLamports && (
+            <span className="call-conf"> · staked {(c.stakeLamports / 1e9).toFixed(3)} SOL</span>
           )}
         </div>
       </div>
@@ -157,6 +174,7 @@ function CallCard({ c, mode, index }: { c: ChainCommit; mode: string; index: num
         <div className="call-tech mono">
           {c.hash && <span>{shortHash(c.hash, 6, 6)}</span>}
           {c.brierBps !== undefined && <span>brier {(c.brierBps / 10000).toFixed(3)}</span>}
+          {c.settled && <span>settled via {c.settlementPath === "proof" ? "TxODDS proof (trustless)" : "admin"}</span>}
         </div>
       )}
     </li>
