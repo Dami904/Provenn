@@ -58,6 +58,17 @@ pub const MAX_NAME_LEN: usize = 32;
 /// in basis points. Silence == maximally wrong.
 pub const MAX_BRIER_BPS: u64 = 10_000;
 
+/// Grace period (seconds) after a proven match result before a THIRD PARTY
+/// (i.e. not the agent's own authority) may force-settle a still-unrevealed
+/// commit to the automatic max-loss score. `settle_with_proof` is fully
+/// permissionless by design (so a hidden bad call can always eventually be
+/// forced to a loss), but without this guard anyone could race the agent's
+/// own reveal transaction the instant TxODDS publishes the finish proof,
+/// permanently locking an honest, about-to-reveal agent into a fabricated
+/// "silence" penalty (reveal-after-settle is rejected). The agent's own
+/// authority is exempt and may always settle immediately.
+pub const UNREVEALED_SETTLE_GRACE_SECS: i64 = 900; // 15 minutes
+
 #[program]
 pub mod provenn_protocol {
     use super::*;
@@ -275,6 +286,25 @@ pub mod provenn_protocol {
         payload: StatValidationInput,
     ) -> Result<()> {
         require!(actual_outcome <= 2, ProvennError::InvalidOutcome);
+
+        // Griefing guard: a still-unrevealed commit may only be force-settled
+        // by someone other than the agent itself once the grace period has
+        // elapsed since the proven result (see UNREVEALED_SETTLE_GRACE_SECS).
+        // The agent's own authority, proven by co-signing this instruction,
+        // may always settle immediately (including settling itself as
+        // unrevealed, if it chooses to give up on a call it can't reveal).
+        if !ctx.accounts.commit.revealed {
+            let is_self_settle = ctx.accounts.authority.to_account_info().is_signer;
+            if !is_self_settle {
+                let clock = Clock::get()?;
+                let result_unix = payload.ts / 1000;
+                let elapsed = clock.unix_timestamp.saturating_sub(result_unix);
+                require!(
+                    elapsed >= UNREVEALED_SETTLE_GRACE_SECS,
+                    ProvennError::TooEarlyToForceSettle
+                );
+            }
+        }
 
         // The oracle account must belong to the TxODDS program (its own PDA
         // seed constraint is re-checked inside the CPI, but fail fast here).
@@ -687,4 +717,6 @@ pub enum ProvennError {
     OracleNoReturn,
     #[msg("TxODDS oracle did not prove the asserted outcome")]
     OutcomeNotProven,
+    #[msg("Unrevealed commit can only be force-settled by a third party after the grace period")]
+    TooEarlyToForceSettle,
 }

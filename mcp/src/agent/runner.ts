@@ -83,6 +83,15 @@ export interface AgentRunnerOptions {
   /** Lamports to stake on each commit (default 0 = no stake). Refunded
    * accuracy-weighted at settlement; slashed for wrong/hidden calls. */
   stakeLamports?: number;
+  /**
+   * How long after kickoff a fresh signal may still trigger a new commit
+   * (default 15). Bounds the detector to pre-match / early-match odds
+   * movement so the track record reflects predictive skill rather than an
+   * agent waiting until the score is already effectively decided (e.g.
+   * committing on a 90th-minute goal) to lock in an easy, low-risk Brier
+   * score. Does not affect reveal/settlement of matches already committed.
+   */
+  earlyCommitWindowMinutes?: number;
 }
 
 /**
@@ -111,6 +120,7 @@ export class AgentRunner {
   private readonly capturesDir?: string;
   private readonly competition: string;
   private readonly stakeLamports: number;
+  private readonly earlyCommitWindowMs: number;
   private readonly history = new Map<string, OddsSnapshot[]>();
   private state: RunnerState;
   private timer?: NodeJS.Timeout;
@@ -127,6 +137,7 @@ export class AgentRunner {
     this.capturesDir = options.capturesDir;
     this.competition = options.competition ?? "World Cup";
     this.stakeLamports = options.stakeLamports ?? 0;
+    this.earlyCommitWindowMs = (options.earlyCommitWindowMinutes ?? 15) * 60_000;
     this.state = this.loadState();
     const pending = Object.values(this.state.matches).filter((m) => m.phase !== "settled");
     this.log("startup", {
@@ -245,6 +256,15 @@ export class AgentRunner {
     }
     if (record) {
       this.log("signal_already_committed", { matchId, phase: record.phase, reason: signal.reason });
+      return;
+    }
+    if (nowMs > fixture.StartTime + this.earlyCommitWindowMs) {
+      this.log("signal_skipped_late_window", {
+        matchId,
+        reason: signal.reason,
+        minutesSinceKickoff: Math.round((nowMs - fixture.StartTime) / 60_000),
+        windowMinutes: this.earlyCommitWindowMs / 60_000,
+      });
       return;
     }
 
