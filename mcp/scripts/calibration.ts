@@ -6,7 +6,8 @@
  *
  *   npx tsx scripts/calibration.ts [thresholdPct]
  *
- * Writes docs/calibration.svg and prints the reliability table.
+ * Writes app/public/calibration.svg (served by the dashboard) and prints the
+ * reliability table.
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -150,7 +151,7 @@ function writeSvg(points: Array<{ x: number; y: number; n: number }>, n: number,
   <text x="${W / 2}" y="26" font-size="14" font-weight="700" text-anchor="middle" fill="#16181a">Provenn signal calibration</text>
   <text x="${W / 2}" y="43" font-size="11" text-anchor="middle" fill="#676d73">${n} signals · hit-rate ${(hit * 100).toFixed(0)}% · mean Brier ${brier.toFixed(3)} · dashed = perfect calibration</text>
 </svg>`;
-  const out = join(REPO_ROOT, "docs", "calibration.svg");
+  const out = join(REPO_ROOT, "app", "public", "calibration.svg");
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, svg);
   console.log(`\nwrote ${out}`);
