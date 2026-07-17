@@ -55,6 +55,10 @@ npx tsx scripts/run-agent.ts
 # or replay a recorded capture (how judges can test after the tournament)
 npx tsx scripts/run-agent.ts --replay replay-samples/2026-07-11-live-worldcup.jsonl --speed 60
 
+# or replay a synthetic feed glitch — a single-tick 40pp odds jump — to watch
+# the integrity gate refuse to commit on bad data (not a real TxLINE capture)
+npx tsx scripts/run-agent.ts --replay replay-samples/glitch-demo.jsonl --speed 100
+
 # dashboard: API + UI (visit http://localhost:5173 — add ?demo for canned data)
 npx tsx scripts/serve-api.ts
 cd ../app && npx vite
@@ -64,6 +68,9 @@ cd ../mcp && npx tsx scripts/agent-status.ts
 
 # tests (deterministic signal math, integrity gate, prediction hashing)
 npm test
+
+# dashboard tests (event-log parsing, incl. the integrity-gate watch card)
+npm test --workspace=@provenn/app
 ```
 
 `.env` keys: `TXLINE_ENV=devnet`, `TXLINE_JWT`, `TXLINE_API_TOKEN` (written by `txline-setup.ts`).

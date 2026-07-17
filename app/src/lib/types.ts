@@ -167,7 +167,7 @@ export function foldEvents(events: LogEvent[]): {
       e.kind === "skip" ||
       e.kind === "no_signal" ||
       e.kind === "no_1x2_market" ||
-      e.kind === "integrity_gated";
+      e.kind === "integrity_skip";
     if (isWatchEvent) {
       const w = watch.get(id) ?? { matchId: id, fixture: e.fixture ?? id, history: [] };
       if (e.fixture) w.fixture = e.fixture;
@@ -183,7 +183,7 @@ export function foldEvents(events: LogEvent[]): {
       const drift = e.driftPct ?? driftFromReason(e.reason);
       if (drift !== undefined) w.driftPct = drift;
       if (e.integrityOk !== undefined) w.integrityOk = e.integrityOk;
-      if (e.kind === "integrity_gated") w.integrityOk = false;
+      if (e.kind === "integrity_skip") w.integrityOk = false;
       if (e.kind === "no_1x2_market") w.reason = "no 1X2 market on feed";
       else if (e.reason) w.reason = e.reason;
       const t = timeOf(e);
