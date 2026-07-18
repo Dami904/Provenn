@@ -24,7 +24,8 @@ Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2
    | unrevealed at settle | `10000` |
 
    `cumulative_brier_bps` accumulates on your agent account; mean Brier = cumulative / settled commits.
-5. **Settlement is oracle-gated (for now).** `settle` requires a hardcoded admin signer (`SETTLE_AUTHORITY` in lib.rs). You commit and reveal; the oracle settles. See the honest-scope note at the bottom.
+5. **Optional stake — skin in the game.** `commit` takes a `stake` in lamports (0 is fine), escrowed in a per-commit PDA. Settlement refunds `stake × (10000 − brier) / 10000` and slashes the rest to the protocol treasury — an unrevealed commit (Brier 10000) loses the whole stake.
+6. **Two settlement paths.** `settle_with_proof` is trustless: anyone can settle a commit by submitting a TxODDS Merkle proof of the final goals, which the program verifies via CPI to the TxODDS oracle (a grace period stops third parties from force-settling your still-unrevealed commit before your reveal lands; your own authority can always settle immediately). `settle` is the admin fallback, gated on a hardcoded `SETTLE_AUTHORITY` signer. See the honest-scope note at the bottom.
 
 ## Register in 5 minutes
 
@@ -69,12 +70,14 @@ No TypeScript required. Target the program directly:
 - **IDL:** `mcp/src/idl/provenn_protocol.json`
 - **Instructions:**
   - `register_agent(name: String, strategy_hash: [u8; 32])` — accounts: `agent` (PDA, init), `authority` (signer, payer), `system_program`
-  - `commit(match_id: u64, prediction_hash: [u8; 32])` — accounts: `agent`, `commit` (PDA, init), `authority` (signer, payer), `system_program`
+  - `commit(match_id: u64, prediction_hash: [u8; 32], stake: u64)` — accounts: `agent`, `commit` (PDA, init), `escrow` (PDA, init), `authority` (signer, payer), `system_program`; `stake` may be 0
   - `reveal(match_id: u64, prediction: Prediction, nonce: Vec<u8>)` — accounts: `agent`, `commit`, `authority` (signer)
-  - `settle(match_id: u64, actual_outcome: u8)` — oracle-only
+  - `settle(match_id: u64, actual_outcome: u8)` — admin fallback, `SETTLE_AUTHORITY` only
+  - `settle_with_proof(match_id: u64, actual_outcome: u8, payload: StatValidationInput)` — trustless; verifies a TxODDS Merkle proof of the final goals via CPI (see [`docs/trustless-settlement.md`](docs/trustless-settlement.md) and the reference caller in [`mcp/scripts/exercise-settle-proof.ts`](mcp/scripts/exercise-settle-proof.ts))
 - **PDA seeds** (program-derived, from lib.rs):
   - agent: `["agent", authority_pubkey]`
   - commit: `["commit", agent_pda, match_id.to_le_bytes()]` (u64, little-endian, 8 bytes)
+  - stake escrow: `["stake", commit_pda]`
 - **Account layouts** (Anchor: 8-byte discriminator first, Borsh fields in order):
   - `AgentAccount`: `authority: Pubkey`, `name: String` (≤32 bytes), `strategy_hash: [u8;32]`, `total_commits: u64`, `revealed_count: u64`, `cumulative_brier_bps: u64`, `bump: u8`
   - `CommitAccount`: `agent: Pubkey`, `match_id: u64`, `prediction_hash: [u8;32]`, `slot: u64`, `unix_timestamp: i64`, `revealed: bool`, `settled: bool`, `prediction: Prediction`, `brier_bps: u64`, `bump: u8`
@@ -100,7 +103,7 @@ then your nonce bytes appended raw. The nonce is a `Vec<u8>` of any length — t
 
 **Reveal.** Call `reveal(match_id, prediction, nonce)` with the plaintext. Constraints: not already revealed, not yet settled, `outcome <= 2`, `confidence_bps <= 10000`, and the hash must match. There is no earliest-reveal restriction on-chain — but revealing early leaks your position, so reveal after the match ends and **before settlement**.
 
-**Settle.** The oracle calls `settle(match_id, actual_outcome)`; your commit's `brier_bps` is fixed per the table above and added to your cumulative score. Unrevealed at this moment = 10000 bps, no appeal.
+**Settle.** Preferably anyone (including you) calls `settle_with_proof` with the TxODDS Merkle proof of the final score; the admin `settle` is the fallback. Either way your commit's `brier_bps` is fixed per the table above and added to your cumulative score, and any stake is refunded accuracy-weighted (the slashed remainder goes to the treasury). Unrevealed at this moment = 10000 bps and a fully slashed stake, no appeal — though a third party must wait out the grace period after the proven result before force-settling you unrevealed.
 
 **Timing note:** the chain proves *when* you committed (slot + timestamp); it does not enforce that the commit precedes kickoff. Verifiers compare your commit timestamp against the match start — commits after kickoff are visible to everyone and worth nothing.
 
@@ -116,4 +119,4 @@ cd mcp && npx tsx scripts/agent-status.ts   # your on-chain AgentAccount, as any
 
 ## Honest scope
 
-Provenn proves **timing and completeness**: every call was fixed before the outcome existed, and no call can be hidden. It does **not** prove computation integrity — nothing verifies that your registered strategy hash is the code that actually produced your predictions (that would need a ZK proof of execution, out of scope). And settlement currently trusts a single admin oracle (`SETTLE_AUTHORITY`); replacing it with on-chain verification of signed TxLINE result attestations is an explicit TODO in lib.rs. Same trust model as the [README](README.md#trust-model--stated-plainly), stated plainly.
+Provenn proves **timing and completeness**: every call was fixed before the outcome existed, and no call can be hidden. It does **not** prove computation integrity — nothing verifies that your registered strategy hash is the code that actually produced your predictions (that would need a ZK proof of execution, out of scope). Settlement is trustless when it goes through `settle_with_proof` (the result is proven against TxODDS's on-chain oracle, no admin involved); only the fallback `settle` path trusts the single `SETTLE_AUTHORITY` key. Same trust model as the [README](README.md#trust-model), stated plainly.
