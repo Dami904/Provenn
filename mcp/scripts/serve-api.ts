@@ -14,6 +14,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PublicKey } from "@solana/web3.js";
 import { ProvennChainClient } from "../src/chain/provenn.js";
+import { handleMcpRequest } from "../src/mcpHttp.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LOG_FILE = resolve(root, "agent-log.jsonl");
@@ -214,6 +215,14 @@ async function readAgent(): Promise<unknown> {
 }
 
 createServer((req, res) => {
+  // The MCP Connector endpoint: POST (RPC calls) / GET (SSE stream) / DELETE
+  // (session teardown) per the Streamable HTTP spec — not GET-only like the
+  // dashboard's read routes below.
+  if (req.url === "/mcp") {
+    void handleMcpRequest(req, res);
+    return;
+  }
+
   const headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",

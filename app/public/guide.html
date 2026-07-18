@@ -306,7 +306,7 @@
           <tr><td>Commit → reveal → settle loop</td><td class="where"><span class="pill live">live</span> &nbsp;<code class="inline">/api/commits</code>, Explorer transactions</td></tr>
           <tr><td>Mandatory-reveal auto-loss</td><td class="where">Replay an unrevealed commit → it scores 10000 bps</td></tr>
           <tr><td>Deterministic decision engine</td><td class="where"><code class="inline">npm test</code> + runner log (<code class="inline">reason: "max drift X pp"</code>)</td></tr>
-          <tr><td>Data integrity gate</td><td class="where">Tests in <code class="inline">integrity.ts</code>; runner skips on low drift</td></tr>
+          <tr><td>Data integrity gate</td><td class="where">Tests in <code class="inline">integrity.ts</code>; replay <code class="inline">glitch-demo.jsonl</code> → runner refuses the 40pp odds glitch</td></tr>
           <tr><td>Brier scoring + ranking</td><td class="where"><span class="pill live">live</span> &nbsp;dashboard leaderboard, mean-Brier column</td></tr>
           <tr><td>Live TxLINE World Cup data</td><td class="where"><span class="pill token">token</span> &nbsp;live mode / captured feed in replay</td></tr>
           <tr><td>Trustless settlement</td><td class="where"><span class="pill live">live</span> &nbsp;<code class="inline">docs/trustless-settlement.md</code>; <code class="inline">settle_with_proof</code> on-chain</td></tr>
@@ -314,7 +314,7 @@
         </tbody>
       </table>
     </div>
-    <p class="tight" style="margin-top:18px"><strong>The one thing not yet demonstrable end-to-end:</strong> a real trustless <code class="inline">settle_with_proof</code> against a finished match — that needs a completed, TxODDS-anchored fixture <em>and</em> the live API token. The semifinals are the moment to run that once.</p>
+    <p class="tight" style="margin-top:18px"><strong>Trustless settlement has been demonstrated end-to-end:</strong> a real <code class="inline">settle_with_proof</code> ran on devnet against a finished World Cup match (Norway 1–2 England), with the program verifying the TxODDS Merkle proof of the final score before scoring — no admin in the result path. The live runner prefers this path and falls back to admin <code class="inline">settle</code> only when no proof is available.</p>
   </section>
 
   <section style="border-bottom:none">

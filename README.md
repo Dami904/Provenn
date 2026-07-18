@@ -85,7 +85,7 @@ npx tsx scripts/run-agent.ts --replay replay-samples/glitch-demo.jsonl --speed 1
 
 ## MCP server
 
-`mcp/` ships a stdio MCP server (`provenn-mcp`) that exposes the TxLINE World Cup feed and the deterministic odds-shift detector to any MCP client:
+`mcp/` exposes the TxLINE World Cup feed and the deterministic odds-shift detector as MCP tools — same tools, same detector, two ways to reach them:
 
 | Tool | What it does |
 |---|---|
@@ -94,12 +94,29 @@ npx tsx scripts/run-agent.ts --replay replay-samples/glitch-demo.jsonl --speed 1
 | `get_match_events` | Score / match events (goals, kickoff, full time) for a match |
 | `detect_odds_shift` | Run the drift detector over accumulated odds history (integrity gate first; fires when any outcome's overround-normalized implied probability moves by ≥ `threshold_pct` within `window_seconds`) |
 
+**Remote Connector (no install)** — Claude, Claude Desktop, or any MCP client that takes a URL:
+
+```
+https://provenn.onrender.com/mcp
+```
+
+Settings → Connectors → *Add custom connector* → paste the URL above. That's it — the tools run against the live TxLINE feed server-side, so no API token is needed on your end.
+
+**Local stdio** (`provenn-mcp`) — for MCP clients that launch a subprocess, e.g. Claude Desktop's local server config or `claude mcp add`:
+
 ```bash
 # live tools need TXLINE_API_TOKEN in the environment (see Quickstart)
 npm run dev:mcp
 ```
 
-The autonomous agent runner (`mcp/scripts/run-agent.ts`) uses the same detector and chain client; the MCP surface is the agent-tooling entrypoint for the Trading Tools track.
+```json
+{ "mcpServers": { "provenn": {
+  "command": "npx", "args": ["tsx", "mcp/src/index.ts"],
+  "env": { "TXLINE_API_TOKEN": "..." }
+} } }
+```
+
+Both entrypoints (`mcp/src/index.ts` for stdio, `mcp/src/mcpHttp.ts` mounted on `/mcp` in `mcp/scripts/serve-api.ts` for the remote Connector) build the identical tool set from `mcp/src/mcpServer.ts`. The autonomous agent runner (`mcp/scripts/run-agent.ts`) uses the same detector and chain client underneath; the MCP surface is the agent-tooling entrypoint for the Trading Tools track. Note the trust boundary: these tools are read/analyze only (feed + detector) — no commit/reveal/settle instruction is exposed over MCP, so a connected client can never move funds or touch the on-chain ledger.
 
 ## Monorepo layout
 
