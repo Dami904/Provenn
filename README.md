@@ -17,8 +17,11 @@ Provenn is an open protocol: anyone can register their own agent on the devnet p
 - [The problem](#the-problem)
 - [How it works](#how-it-works)
 - [Settlement: live vs. next](#settlement-live-vs-next)
+- [Try it in under a minute](#try-it-in-under-a-minute)
+- [MCP server](#mcp-server)
 - [Monorepo layout](#monorepo-layout)
 - [Quickstart](#quickstart)
+- [Testing](#testing)
 - [Trust model](#trust-model)
 
 ## The problem
@@ -51,6 +54,52 @@ The runner (`runner.ts`) always attempts `settle_with_proof` first and only drop
 - Verify any agent's record independently: `npx tsx scripts/verify-agent.ts <pubkey>`
 
 Commits can also carry an optional **stake** (lamports, escrowed per commit): settlement refunds `stake × (10000 − brier) / 10000` and slashes the rest to the treasury, so a wrong or hidden call costs real capital, not just reputation.
+
+## Try it in under a minute
+
+No TxLINE token and no local install for the first look:
+
+1. **Demo dashboard** (canned sample data — leaderboard, probability charts, commit ledger): [provenn-app.vercel.app/dashboard?demo](https://provenn-app.vercel.app/dashboard?demo)
+2. **Live dashboard** (real on-chain agents when the runner has been active): [provenn-app.vercel.app/dashboard](https://provenn-app.vercel.app/dashboard)
+3. **Public API** (same numbers the UI renders — prove it isn't faked client-side):
+
+```bash
+curl https://provenn.onrender.com/api/agents
+curl https://provenn.onrender.com/api/commits
+curl https://provenn.onrender.com/api/log
+```
+
+To exercise the agent locally without credentials, replay a captured World Cup feed (or the synthetic integrity glitch):
+
+```bash
+git clone https://github.com/Dami904/Provenn && cd Provenn
+npm install
+cd mcp
+
+# real captured World Cup odds — no API token needed
+npx tsx scripts/run-agent.ts --replay replay-samples/2026-07-11-live-worldcup.jsonl --speed 60
+
+# synthetic single-tick 40pp odds jump — integrity gate refuses to commit
+npx tsx scripts/run-agent.ts --replay replay-samples/glitch-demo.jsonl --speed 100
+```
+
+## MCP server
+
+`mcp/` ships a stdio MCP server (`provenn-mcp`) that exposes the TxLINE World Cup feed and the deterministic odds-shift detector to any MCP client:
+
+| Tool | What it does |
+|---|---|
+| `get_match_schedule` | List upcoming and live World Cup fixtures from the TxLINE feed |
+| `get_live_odds` | Current odds snapshot for a match; also accumulates in-memory history for the detector |
+| `get_match_events` | Score / match events (goals, kickoff, full time) for a match |
+| `detect_odds_shift` | Run the drift detector over accumulated odds history (integrity gate first; fires when any outcome's overround-normalized implied probability moves by ≥ `threshold_pct` within `window_seconds`) |
+
+```bash
+# live tools need TXLINE_API_TOKEN in the environment (see Quickstart)
+npm run dev:mcp
+```
+
+The autonomous agent runner (`mcp/scripts/run-agent.ts`) uses the same detector and chain client; the MCP surface is the agent-tooling entrypoint for the Trading Tools track.
 
 ## Monorepo layout
 
@@ -98,6 +147,20 @@ npm test --workspace=@provenn/app
 ```
 
 `.env` keys: `TXLINE_ENV=devnet`, `TXLINE_JWT`, `TXLINE_API_TOKEN` (written by `txline-setup.ts`).
+
+## Testing
+
+Three layers, all offline-friendly except where noted:
+
+| Layer | What it covers | Command |
+|---|---|---|
+| **MCP unit tests** (vitest) | Deterministic signal math, overround normalization, integrity gate (stale / glitch / bad prices), prediction Borsh layout + commit hash vectors, runner commit→reveal→settle loop with a mock chain | `npm test` |
+| **Dashboard tests** (vitest) | Event-log folding, including `integrity_skip` → gated watch card | `npm test --workspace=@provenn/app` |
+| **Program integration** (litesvm) | In-process Solana — loads `provenn_protocol.so`, no live validator/RPC. Covers register→commit→reveal, double-commit reject, wrong-nonce `HashMismatch`, non-authority `settle` reject, unrevealed settle = 10000 bps, Brier scoring, stake escrow + accuracy-weighted slash | `cd program/tests && npm test` |
+
+litesvm cases that need a real `SETTLE_AUTHORITY` signature (happy settle, reveal-after-settle, stake slash paths) run only when `~/.config/solana/id.json` is that authority key; everything else always runs in CI-style environments.
+
+CI (`.github/workflows/ci.yml`) typechecks and runs the MCP unit tests, builds the dashboard, and `cargo check`s the Anchor program on every push to `main`.
 
 ## Trust model
 
