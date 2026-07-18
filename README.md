@@ -1,10 +1,25 @@
 # Provenn
 
+[![CI](https://github.com/Dami904/Provenn/actions/workflows/ci.yml/badge.svg)](https://github.com/Dami904/Provenn/actions/workflows/ci.yml)
+[![Solana devnet](https://img.shields.io/badge/solana-devnet-9945FF?logo=solana&logoColor=white)](https://explorer.solana.com/address/Ayfm8HcwaMTXFVxc3zTvXBcLAu57tHc4gVKMgE1wSpr2?cluster=devnet)
+![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Track](https://img.shields.io/badge/hackathon-TxODDS%20World%20Cup-orange)
+
 > Trading agents whose track records can't be faked — a mandatory-reveal commit ledger with Brier scoring on Solana, fed by TxLINE World Cup data.
 
 Built for the **TxODDS World Cup Hackathon** (Trading Tools & Agents track).
 
 Provenn is an open protocol: anyone can register their own agent on the devnet program and compete on the public leaderboard — see **[REGISTER.md](REGISTER.md)**.
+
+## Contents
+
+- [The problem](#the-problem)
+- [How it works](#how-it-works)
+- [Settlement: live vs. next](#settlement-live-vs-next)
+- [Monorepo layout](#monorepo-layout)
+- [Quickstart](#quickstart)
+- [Trust model](#trust-model)
 
 ## The problem
 
@@ -17,16 +32,25 @@ Anyone can claim a great trading record; nobody can verify it wasn't fabricated 
 3. **Reveal** — after the match, the plaintext prediction + nonce are revealed; the program verifies the hash.
 4. **Settle** — the outcome is recorded and the agent's cumulative Brier score (basis points) updates on-chain. Unrevealed commits settle as losses.
 
+![Provenn commit-reveal-settle flow](docs/assets/architecture.svg)
+
 The decision logic is fully deterministic — pure math (odds drift vs. implied probability over a window, fixed thresholds), with no LLM in the loop. The same feed always produces the same signal, so every call is independently reproducible.
 
-### Settlement: what's live vs. what's next
+### Settlement: live vs. next
 
-Two settlement paths exist on-chain:
+| Path | Trust | Status |
+|---|---|---|
+| `settle(match_id, outcome)` | Trusts a `SETTLE_AUTHORITY` signer | Fallback — used when no proof is available or the proof call fails |
+| `settle_with_proof(...)` | Trustless — CPIs TxODDS's on-chain oracle to verify a Merkle proof of final goals | **Default** on the live feed; exercised end-to-end on devnet against a real finished match (Norway 1–2 England, fixture `18213979`) |
 
-- **`settle(match_id, outcome)`** — the **live** path. Gated on a `SETTLE_AUTHORITY` signer that reports the result. This is what the runner uses today, so the current trust assumption is: *the timing and completeness of the record are trustless (commit-reveal + mandatory reveal), but the reported outcome trusts one settling key.*
-- **`settle_with_proof(...)`** — the **trustless** path, and it has now been **exercised end to end on devnet against a real finished World Cup match** (Norway 1–2 England, fixture `18213979`). It removes the admin from the result path entirely: the program CPIs TxODDS's on-chain data oracle, which verifies a Merkle proof of the final goals before the outcome is scored (see [`docs/trustless-settlement.md`](docs/trustless-settlement.md)). Proof transaction: [`4iJm4p5g…SGwyu`](https://explorer.solana.com/tx/4iJm4p5gbamNbFJ4NrgBQWDbK6zqoWszem21h132prvkKwAbaW9RWEiydaqxCNWP6L9pUcx6cyLFUdxx14tSGwyu?cluster=devnet). Reproduce it with `npx tsx scripts/exercise-settle-proof.ts <fixtureId>`. The autonomous runner still defaults to admin `settle`; switching it to the proven proof path is the remaining wiring step.
+The runner (`runner.ts`) always attempts `settle_with_proof` first and only drops to admin `settle` on replay mode (no live Merkle data to prove against) or if the proof/CPI call itself fails.
 
-Anyone can independently recompute an agent's whole record straight from devnet accounts — no API, no dashboard — with `npx tsx scripts/verify-agent.ts <pubkey>`.
+- Proof details: [`docs/trustless-settlement.md`](docs/trustless-settlement.md)
+- Reproduce the devnet proof: `npx tsx scripts/exercise-settle-proof.ts <fixtureId>`
+- Proof tx: [`4iJm4p5g…SGwyu`](https://explorer.solana.com/tx/4iJm4p5gbamNbFJ4NrgBQWDbK6zqoWszem21h132prvkKwAbaW9RWEiydaqxCNWP6L9pUcx6cyLFUdxx14tSGwyu?cluster=devnet)
+- Verify any agent's record independently: `npx tsx scripts/verify-agent.ts <pubkey>`
+
+Commits can also carry an optional **stake** (lamports, escrowed per commit): settlement refunds `stake × (10000 − brier) / 10000` and slashes the rest to the treasury, so a wrong or hidden call costs real capital, not just reputation.
 
 ## Monorepo layout
 
@@ -75,6 +99,8 @@ npm test --workspace=@provenn/app
 
 `.env` keys: `TXLINE_ENV=devnet`, `TXLINE_JWT`, `TXLINE_API_TOKEN` (written by `txline-setup.ts`).
 
-## Trust model — stated plainly
+## Trust model
 
-Provenn proves **timing and completeness**: every call was fixed before the outcome existed, and no call can be hidden. It does not prove the agent's internal computation was followed — that would require a ZK proof of execution, which is out of scope. The strategy hash registered on-chain commits the agent to its exact decision code; the deterministic detector makes every signal independently reproducible from the same feed data.
+- **Proven**: timing and completeness — every call was fixed before the outcome existed, and no call can be hidden.
+- **Not proven**: computation integrity — nothing verifies the registered strategy hash matches the code that actually produced a prediction (would require a ZK proof of execution; out of scope).
+- **Reproducible**: the deterministic detector means every signal is independently recomputable from the same feed data.
