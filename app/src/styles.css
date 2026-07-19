@@ -724,15 +724,18 @@ section {
 
 .landing-nav {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 10px 24px;
   padding: 18px 0;
   border-bottom: 1px solid var(--border);
 }
 
 .nav-links {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 10px 22px;
   font-size: 13.5px;
   font-weight: 700;
 }
